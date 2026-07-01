@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 9250 chars / 266 lines
+**Length:** 9300 chars / 266 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -214,8 +214,8 @@ PATCHES = {
     'manga_translator/upscaling/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # mode: not needed
     'manga_translator/mode/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
-    # textline_merge: not needed
-    'manga_translator/textline_merge/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
+    # textline_merge: KEEP ORIGINAL (Cell 6 uses it to group lines into bubbles)
+    # 'manga_translator/textline_merge/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # mask_refinement: not needed
     'manga_translator/mask_refinement/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # rendering: avoid triggering chain
@@ -2013,7 +2013,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 12977 chars / 360 lines
+**Length:** 13882 chars / 376 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2081,6 +2081,22 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         # zyddnys এর textline_merge module এই grouping করে।
         text_blocks = []
         try:
+            # Cell 1-এ textline_merge/__init__.py আগে empty stub করা হতো।
+            # V11 এখন original file ব্যবহার করে। কিন্তু যদি user Cell 1
+            # আবার না চালিয়ে থাকে, এখানে restore করে নিচ্ছি safety হিসেবে।
+            import manga_translator.textline_merge as _tlm
+            if not hasattr(_tlm, 'dispatch'):
+                # Stubbed — restore original from zyddnys repo
+                _tlm_path = os.path.join(CONFIG.get('mii_path', '/content/manga-image-translator'),
+                                          'manga_translator/textline_merge/__init__.py')
+                if os.path.exists(_tlm_path):
+                    import importlib
+                    # Read original content and exec it
+                    with open(_tlm_path) as f:
+                        _orig_src = f.read()
+                    exec(_orig_src, _tlm.__dict__)
+                    importlib.reload(_tlm)
+
             from manga_translator.textline_merge import dispatch as merge_dispatch
             img_h, img_w = image_np.shape[:2]
             text_blocks = _run_async(merge_dispatch(textlines, img_w, img_h, verbose=False))
