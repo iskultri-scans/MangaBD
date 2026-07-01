@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 9159 chars / 264 lines
+**Length:** 9250 chars / 266 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -74,6 +74,8 @@ CORE_PACKAGES = [
     "pyclipper>=1.3.0",
     "networkx>=3.0",
     "scikit-image>=0.21.0",
+    # Baidu OCR dep (needed by baidu/Unlimited-OCR trust_remote_code)
+    "addict>=2.4.0",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
@@ -739,7 +741,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 20204 chars / 513 lines
+**Length:** 20470 chars / 519 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -888,6 +890,18 @@ print("─" * 60)
 baidu_load_start = time.time()
 baidu_ocr = None
 try:
+    # Baidu OCR-এর trust_remote_code modeling file 'addict' package চায়।
+    # Cell 1-এ যোগ করা আছে, কিন্তু যদি কেউ Cell 1 না চালিয়ে থাকে,
+    # এখানে inline install করে নিচ্ছি safety হিসেবে।
+    try:
+        import addict
+    except ImportError:
+        import subprocess
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', 'addict'],
+                       check=False)
+        import addict
+    print(f"  ✅ addict package available (Baidu OCR dependency)")
+
     from transformers import AutoModel, AutoTokenizer
 
     BAIDU_MODEL_ID = 'baidu/Unlimited-OCR'
@@ -1092,42 +1106,36 @@ print("─" * 60)
 
 # Download weight if missing
 # (lama_model_dir already created above)
+# NOTE: LamaLargeInpainter-এর নিজস্ব _MODEL_MAPPING HuggingFace থেকে
+# 'lama_large_512px.ckpt' download করে। আমরা সেটাই use করব —
+# আলাদা download করার দরকার নেই। শুধু directory নিশ্চিত করছি।
 lama_model_path = CONFIG['lama_model_path']
-lama_url = 'https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/inpainting_lama_mpe.ckpt'
 
-if not (os.path.exists(lama_model_path) and os.path.getsize(lama_model_path) > 1024):
-    download_file(lama_url, lama_model_path, "LaMa Large model")
+# If the correct file (lama_large_512px.ckpt) is missing, the
+# parent class will auto-download it via its _MODEL_MAPPING.
+lama_correct_path = f"{lama_model_dir}/lama_large_512px.ckpt"
+if os.path.exists(lama_correct_path) and os.path.getsize(lama_correct_path) > 1024:
+    print(f"  ✅ LaMa Large cached ({os.path.getsize(lama_correct_path)/1e6:.1f} MB)")
 else:
-    print(f"  ✅ LaMa cached ({os.path.getsize(lama_model_path)/1e6:.1f} MB)")
+    print(f"  ℹ️ LaMa Large not cached yet — will download from HuggingFace (~200MB)")
 
 lama_load_start = time.time()
 lama_inpainter = None
 try:
     from manga_translator.inpainting.inpainting_lama_mpe import LamaLargeInpainter
 
-    # ─── FIX for KeyError 'models_lama' ──────────────────────────
-    # Same pattern as CTD: override class attributes before __init__
-    # LamaLargeInpainter's _MODEL_MAPPING points to 'lama_large_512px.ckpt'
-    # but we already downloaded as 'inpainting_lama_mpe.ckpt'.
-    # Solution: also override _MODEL_MAPPING to point to our filename.
+    # ─── FIX for LaMa Large filename mismatch ───────────────────
+    # LamaLargeInpainter-এর নিজস্ব _MODEL_MAPPING HuggingFace থেকে
+    # 'lama_large_512px.ckpt' download করে এবং _load() সেই filename
+    # খুঁজে। আমরা শুধু _MODEL_DIR ও _MODEL_SUB_DIR override করছি
+    # যাতে সেটা আমাদের Drive-এ save হয়। _MODEL_MAPPING অপরিবর্তিত রাখি।
     # ─────────────────────────────────────────────────────────────
     class MangaBD_LaMa(LamaLargeInpainter):
-        """LaMa Large with MangaBD Drive model dir + correct filename."""
+        """LaMa Large with MangaBD Drive model dir.
+        Inherits _MODEL_MAPPING from LamaLargeInpainter — auto-downloads
+        lama_large_512px.ckpt from HuggingFace if missing."""
         _MODEL_DIR = CONFIG['models_dir']
         _MODEL_SUB_DIR = 'lama_large'
-
-        # Override _MODEL_MAPPING to use the file we already downloaded
-        # (LamaLargeInpainter normally uses 'lama_large_512px.ckpt')
-        _MODEL_MAPPING = {
-            'model': {
-                'url': 'https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/inpainting_lama_mpe.ckpt',
-                'hash': 'd625aa1b3e0d0408acfd6928aa84f005867aa8dbb9162480346a4e20660786cc',
-                'file': 'inpainting_lama_mpe.ckpt',
-            },
-        }
-
-        def _get_file_path(self, *args):
-            return os.path.join(self.model_dir, *args)
 
     lama_inpainter = MangaBD_LaMa()
     _run_async(lama_inpainter.load(DEVICE))
@@ -1182,7 +1190,7 @@ if ctd_detector is not None:
             box_threshold=CONFIG['box_threshold'],
             unclip_ratio=CONFIG['unclip_ratio'],
             invert=False, gamma_correct=False, rotate=False,
-            auto_rotate=False, device=DEVICE, verbose=False,
+            auto_rotate=False, verbose=False,
         ))
         print(f"  ✅ CTD: detected {len(textlines)} regions on test image")
     except Exception as e:
@@ -1229,7 +1237,7 @@ if lama_inpainter is not None:
         cfg = InpainterConfig()
         result = _run_async(lama_inpainter.inpaint(
             test_img, mask, cfg, inpainting_size=256,
-            device=DEVICE, verbose=False,
+            verbose=False,
         ))
         if result is not None and result.size > 0:
             center_val = int(np.mean(result[120:140, 120:140]))
@@ -1929,7 +1937,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 11819 chars / 341 lines
+**Length:** 11792 chars / 340 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -1988,7 +1996,6 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
             gamma_correct=False,
             rotate=False,
             auto_rotate=True,    # V11: auto-rotate for tilted pages
-            device=DEVICE,
             verbose=False,
         ))
 
@@ -2606,7 +2613,7 @@ log_event("Cell 7: OCR Engine ready (Baidu + Qwen VL)")
 <a id='cell-08'></a>
 ## 🧩 Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)
 **Source file:** `cell_08_inpainting.py`
-**Length:** 11642 chars / 328 lines
+**Length:** 11596 chars / 327 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2730,7 +2737,6 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
             result = _run_async(lama_inpainter.inpaint(
                 image_np, dilated, cfg,
                 inpainting_size=inpainting_size,
-                device=DEVICE,
                 verbose=False,
             ))
             if result is not None and result.size > 0:
@@ -2796,7 +2802,7 @@ def inpaint_full_page(image_np, regions, detector=None):
                 box_threshold=CONFIG['box_threshold'],
                 unclip_ratio=CONFIG['unclip_ratio'],
                 invert=False, gamma_correct=False, rotate=False,
-                auto_rotate=False, device=DEVICE, verbose=False,
+                auto_rotate=False, verbose=False,
             ))
             if ctd_mask is not None and ctd_mask.size > 0:
                 if ctd_mask.shape[:2] != (h, w):
