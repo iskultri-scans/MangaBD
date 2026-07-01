@@ -741,7 +741,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 22473 chars / 557 lines
+**Length:** 24383 chars / 595 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -914,7 +914,7 @@ try:
     if not hasattr(_tui, 'is_torch_fx_tracer_available'):
         _tui.is_torch_fx_tracer_available = lambda *args, **kwargs: False
 
-    from transformers import AutoModel, AutoTokenizer
+    from transformers import AutoModel, AutoTokenizer, AutoConfig
 
     BAIDU_MODEL_ID = 'baidu/Unlimited-OCR'
 
@@ -926,10 +926,42 @@ try:
         cache_dir=baidu_cache_dir,
         trust_remote_code=True,
     )
+
+    # ─── FIX: 'pad_token_id' missing on UnlimitedOCRConfig ───────
+    # transformers 4.50+ generate() এর সময় config.pad_token_id access করে।
+    # Baidu এর custom UnlimitedOCRConfig এটা define করে না।
+    # Solution: config আগে load করে, missing attribute গুলো inject করি।
+    baidu_config = AutoConfig.from_pretrained(
+        BAIDU_MODEL_ID,
+        cache_dir=baidu_cache_dir,
+        trust_remote_code=True,
+    )
+    # Inject missing attributes with safe defaults
+    pad_id = getattr(baidu_tokenizer, 'pad_token_id', None)
+    if pad_id is None:
+        # Try bos/eos as fallback
+        pad_id = getattr(baidu_tokenizer, 'bos_token_id', None) or \
+                 getattr(baidu_tokenizer, 'eos_token_id', None) or 0
+    if not hasattr(baidu_config, 'pad_token_id') or baidu_config.pad_token_id is None:
+        baidu_config.pad_token_id = pad_id
+        print(f"  ✅ Patched config.pad_token_id = {pad_id}")
+    # Other commonly-missing attributes (prevent future errors)
+    for attr, default in [
+        ('bos_token_id', getattr(baidu_tokenizer, 'bos_token_id', None) or 1),
+        ('eos_token_id', getattr(baidu_tokenizer, 'eos_token_id', None) or 2),
+        ('decoder_start_token_id', pad_id),
+        ('vocab_size', len(baidu_tokenizer)),
+    ]:
+        if not hasattr(baidu_config, attr) or getattr(baidu_config, attr) is None:
+            try:
+                setattr(baidu_config, attr, default)
+            except Exception:
+                pass  # read-only attribute — skip silently
+
     # Use low_cpu_mem_usage + device_map='auto' to avoid OOM during loading
-    # (Baidu এর model fairly large — ~3B params)
     baidu_model = AutoModel.from_pretrained(
         BAIDU_MODEL_ID,
+        config=baidu_config,
         cache_dir=baidu_cache_dir,
         trust_remote_code=True,
         torch_dtype=DEVICE_TORCH_DTYPE,
@@ -1000,8 +1032,14 @@ except Exception as e:
         if line.strip():
             print(f"     {line}")
     print(f"  ⚠️ Baidu fallback: Qwen VL primary হবে")
+    print(f"  💡 যদি Baidu এর আরো compatibility issue হয়, চিন্তা করো না —")
+    print(f"     Qwen VL দিয়েই সব OCR চলবে, Baidu ছাড়াও workflow complete হবে।")
     models_loaded['baidu'] = False
     baidu_ocr = None
+    # Auto-switch to Qwen as primary if Baidu fails AND Qwen is available
+    if CONFIG.get('ocr_engine', 'baidu') == 'baidu':
+        CONFIG['ocr_engine'] = 'qwen'
+        print(f"  🔄 Auto-switched CONFIG['ocr_engine'] = 'qwen' (Baidu unavailable)")
 
 print()
 
