@@ -2013,7 +2013,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 11792 chars / 340 lines
+**Length:** 12977 chars / 360 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2075,38 +2075,58 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
             verbose=False,
         ))
 
+        # ─── V11: textline_merge — group lines into bubbles ───────
+        # CTD returns individual text lines, but manga bubbles এ একাধিক
+        # line থাকে যেগুলো একসাথে একটা speech bubble তৈরি করে।
+        # zyddnys এর textline_merge module এই grouping করে।
+        text_blocks = []
+        try:
+            from manga_translator.textline_merge import dispatch as merge_dispatch
+            img_h, img_w = image_np.shape[:2]
+            text_blocks = _run_async(merge_dispatch(textlines, img_w, img_h, verbose=False))
+            if text_blocks:
+                print(f"    🔗 Merged {len(textlines)} lines → {len(text_blocks)} bubbles")
+        except Exception as merge_err:
+            log_event(f"textline_merge failed, falling back to per-line: {str(merge_err)[:60]}",
+                      level='WARN')
+            text_blocks = []  # fall back to per-line mode
+
+        # Use merged blocks if available, else fall back to per-line
+        source_items = text_blocks if text_blocks else textlines
+
         regions = []
-        for tl in textlines:
+        for item in source_items:
             try:
-                # Quadrilateral object → corner points
-                if hasattr(tl, 'pts'):
-                    pts = tl.pts
-                    prob = float(getattr(tl, 'prob', 0.8))
+                # TextBlock (merged) বা Quadrilateral (single line) — দুটোই handle করি
+                if hasattr(item, 'lines'):
+                    # TextBlock: multiple lines
+                    all_pts = np.vstack(item.lines)
+                    prob = float(getattr(item, 'prob', 0.8))
+                    angle = float(getattr(item, 'angle', 0.0))
+                elif hasattr(item, 'pts'):
+                    # Quadrilateral: single line
+                    all_pts = np.array(item.pts)
+                    prob = float(getattr(item, 'prob', 0.8))
+                    angle = _compute_quad_angle(all_pts)
                 else:
-                    pts = np.array(tl)
-                    prob = 0.8
+                    continue
 
                 # Filter tiny regions (noise)
-                x_min = int(np.min(pts[:, 0]))
-                y_min = int(np.min(pts[:, 1]))
-                x_max = int(np.max(pts[:, 0]))
-                y_max = int(np.max(pts[:, 1]))
+                x_min = int(np.min(all_pts[:, 0]))
+                y_min = int(np.min(all_pts[:, 1]))
+                x_max = int(np.max(all_pts[:, 0]))
+                y_max = int(np.max(all_pts[:, 1]))
                 w = x_max - x_min
                 h = y_max - y_min
 
                 if w < 5 or h < 5:
                     continue
 
-                # Compute rotation angle from corner points
-                # Top-left → top-right → bottom-right → bottom-left
-                # Angle = angle of top edge (pts[0] → pts[1])
-                angle = _compute_quad_angle(pts)
-
                 # Region type from classification
-                region_type = classify_region_from_quad(image_np, pts)
+                region_type = classify_region_from_quad(image_np, all_pts)
 
                 regions.append({
-                    'quad': pts.astype(np.int32),
+                    'quad': all_pts.astype(np.int32),
                     'xyxy': (x_min, y_min, x_max, y_max),
                     'xywh': (x_min, y_min, w, h),
                     'angle': angle,
