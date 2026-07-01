@@ -741,7 +741,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 20470 chars / 519 lines
+**Length:** 22473 chars / 557 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -902,6 +902,18 @@ try:
         import addict
     print(f"  ✅ addict package available (Baidu OCR dependency)")
 
+    # ─── FIX: transformers compatibility shim ───────────────────
+    # নতুন transformers (4.50+) এ 'is_torch_fx_available' সরিয়ে দেওয়া হয়েছে।
+    # Baidu-এর modeling_deepseekv2.py পুরোনো API চায় — তাই এখানে
+    # monkey-patch করে missing function টা inject করছি (no-op হিসেবে)।
+    import transformers.utils.import_utils as _tui
+    if not hasattr(_tui, 'is_torch_fx_available'):
+        _tui.is_torch_fx_available = lambda *args, **kwargs: False
+        print(f"  ✅ Patched transformers.is_torch_fx_available (Baidu compat)")
+    # একই ভাবে আরো কিছু missing function থাকতে পারে — inject করি
+    if not hasattr(_tui, 'is_torch_fx_tracer_available'):
+        _tui.is_torch_fx_tracer_available = lambda *args, **kwargs: False
+
     from transformers import AutoModel, AutoTokenizer
 
     BAIDU_MODEL_ID = 'baidu/Unlimited-OCR'
@@ -914,14 +926,19 @@ try:
         cache_dir=baidu_cache_dir,
         trust_remote_code=True,
     )
+    # Use low_cpu_mem_usage + device_map='auto' to avoid OOM during loading
+    # (Baidu এর model fairly large — ~3B params)
     baidu_model = AutoModel.from_pretrained(
         BAIDU_MODEL_ID,
         cache_dir=baidu_cache_dir,
         trust_remote_code=True,
         torch_dtype=DEVICE_TORCH_DTYPE,
-    ).to(DEVICE).eval()
-    # NOTE: device_map='auto' can break with baidu_ocr's custom code.
-    # We use explicit .to(DEVICE) instead — more reliable.
+        low_cpu_mem_usage=True,
+        device_map='auto' if DEVICE == 'cuda' else None,
+    )
+    baidu_model.eval()
+    print(f"  ✅ Baidu model loaded to device(s): "
+          f"{set(p.device for p in baidu_model.parameters())}")
 
     class BaiduOCRWrapper:
         """Wrapper around Baidu Unlimited OCR."""
@@ -1010,12 +1027,25 @@ try:
     QWEN_MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
 
     print(f"  📥 Loading {QWEN_MODEL_ID}...")
+    print(f"     (using device_map='auto' to avoid OOM during .to(DEVICE))")
+
+    # ─── FIX: CUDA OOM during .to(DEVICE) ───────────────────────
+    # আগে আমরা `.to(DEVICE)` করতাম যেটা PyTorch এ একটা temporary
+    # copy তৈরি করে → memory double হয়ে যায় → OOM।
+    # এখন `device_map='auto'` + `low_cpu_mem_usage=True` দিয়ে
+    # directly GPU তে load করছি (no temporary copy)।
+    # ─────────────────────────────────────────────────────────────
     qwen_vl_model = QwenModel.from_pretrained(
         QWEN_MODEL_ID,
         cache_dir=qwen_cache_dir,
         torch_dtype=DEVICE_TORCH_DTYPE,
         trust_remote_code=True,
-    ).to(DEVICE).eval()
+        low_cpu_mem_usage=True,
+        device_map='auto' if DEVICE == 'cuda' else None,
+    )
+    qwen_vl_model.eval()
+    print(f"  ✅ Qwen model loaded to device(s): "
+          f"{set(p.device for p in qwen_vl_model.parameters())}")
 
     qwen_vl_processor = AutoProcessor.from_pretrained(
         QWEN_MODEL_ID,
@@ -1061,10 +1091,18 @@ try:
                     text=chat_text, images=[pil_img],
                     return_tensors='pt', padding=True,
                 )
-                # Move all tensor inputs to device, cast to correct dtype
+                # ─── FIX: device_map='auto' এর জন্য proper device handling ──
+                # Model এর parameter গুলোর উপর ভিত্তি করে actual device বের করি
+                # (device_map='auto' হলে model একাধিক device-এ থাকতে পারে)
+                try:
+                    # প্রথম parameter এর device নাও (input embeddings)
+                    model_device = next(self.model.parameters()).device
+                except Exception:
+                    model_device = self.device
+
                 inputs = {
-                    k: (v.to(self.device).to(DEVICE_TORCH_DTYPE)
-                        if v.dtype.is_floating_point else v.to(self.device))
+                    k: (v.to(model_device).to(DEVICE_TORCH_DTYPE)
+                        if v.dtype.is_floating_point else v.to(model_device))
                     for k, v in inputs.items() if isinstance(v, torch.Tensor)
                 }
 
