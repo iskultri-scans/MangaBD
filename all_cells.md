@@ -739,7 +739,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 19577 chars / 499 lines
+**Length:** 20204 chars / 513 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -772,6 +772,20 @@ print()
 
 load_start = time.time()
 models_loaded = {}
+
+# ── Derive model subdirectories from existing CONFIG paths ──
+# Cell 2-এ CONFIG তে শুধু *_model_path (full file path) আর models_dir আছে।
+# কোনো directory path key নেই (যেমন models_ctd, models_baidu ইত্যাদি)।
+# তাই এখানে সেগুলো derive করছি।
+ctd_model_dir = os.path.dirname(CONFIG['ctd_model_path'])
+baidu_cache_dir = f"{CONFIG['models_dir']}/baidu_ocr"
+qwen_cache_dir = f"{CONFIG['models_dir']}/qwen_vl"
+lama_model_dir = os.path.dirname(CONFIG['lama_model_path'])
+nllb_cache_dir = f"{CONFIG['models_dir']}/nllb"
+
+# Make sure all directories exist
+for d in [ctd_model_dir, baidu_cache_dir, qwen_cache_dir, lama_model_dir, nllb_cache_dir]:
+    os.makedirs(d, exist_ok=True)
 
 # ── Helper: download with progress ────────────────────
 def download_file(url, dest, label=""):
@@ -809,7 +823,7 @@ print("  🔍 Model 1/4: CTD (Comic Text Detector)")
 print("─" * 60)
 
 # Ensure model directory exists and download weight
-os.makedirs(CONFIG['models_ctd'], exist_ok=True)
+# (ctd_model_dir already created above)
 ctd_model_path = CONFIG['ctd_model_path']
 ctd_url = 'https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt'
 
@@ -883,12 +897,12 @@ try:
 
     baidu_tokenizer = AutoTokenizer.from_pretrained(
         BAIDU_MODEL_ID,
-        cache_dir=CONFIG['models_baidu'],
+        cache_dir=baidu_cache_dir,
         trust_remote_code=True,
     )
     baidu_model = AutoModel.from_pretrained(
         BAIDU_MODEL_ID,
-        cache_dir=CONFIG['models_baidu'],
+        cache_dir=baidu_cache_dir,
         trust_remote_code=True,
         torch_dtype=DEVICE_TORCH_DTYPE,
     ).to(DEVICE).eval()
@@ -984,14 +998,14 @@ try:
     print(f"  📥 Loading {QWEN_MODEL_ID}...")
     qwen_vl_model = QwenModel.from_pretrained(
         QWEN_MODEL_ID,
-        cache_dir=CONFIG['models_qwen'],
+        cache_dir=qwen_cache_dir,
         torch_dtype=DEVICE_TORCH_DTYPE,
         trust_remote_code=True,
     ).to(DEVICE).eval()
 
     qwen_vl_processor = AutoProcessor.from_pretrained(
         QWEN_MODEL_ID,
-        cache_dir=CONFIG['models_qwen'],
+        cache_dir=qwen_cache_dir,
         trust_remote_code=True,
     )
 
@@ -1077,7 +1091,7 @@ print("  ✂️ Model 4/4: LaMa Large (Inpainting)")
 print("─" * 60)
 
 # Download weight if missing
-os.makedirs(CONFIG['models_lama'], exist_ok=True)
+# (lama_model_dir already created above)
 lama_model_path = CONFIG['lama_model_path']
 lama_url = 'https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/inpainting_lama_mpe.ckpt'
 
@@ -3921,7 +3935,7 @@ else:
 <a id='cell-13'></a>
 ## 🧩 Cell 13 — 📤 CELL 13 — Translation (V11: Manual + Gemini + ChatGPT + NLLB)
 **Source file:** `cell_13_translation.py`
-**Length:** 18459 chars / 565 lines
+**Length:** 18684 chars / 569 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -4130,16 +4144,20 @@ def load_nllb():
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
         NLLB_MODEL_ID = 'facebook/nllb-200-distilled-600M'
 
+        # Derive NLLB cache dir from CONFIG['models_dir']
+        # (Cell 2-এ CONFIG['models_nllb'] key নেই — তাই এখানে derive করছি)
+        nllb_cache_dir = f"{CONFIG['models_dir']}/nllb"
+        os.makedirs(nllb_cache_dir, exist_ok=True)
+
         print(f"  📥 Loading NLLB-200 (first time ~1.5GB download)...")
         nllb_tokenizer = AutoTokenizer.from_pretrained(
-            NLLB_MODEL_ID, cache_dir=CONFIG['models_nllb']
+            NLLB_MODEL_ID, cache_dir=nllb_cache_dir
         )
         nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
-            NLLB_MODEL_ID, cache_dir=CONFIG['models_nllb'],
+            NLLB_MODEL_ID, cache_dir=nllb_cache_dir,
             torch_dtype=DEVICE_TORCH_DTYPE,
-            device_map='auto' if DEVICE == 'cuda' else None,
-        )
-        nllb_model.eval()
+        ).to(DEVICE).eval()
+        # NOTE: explicit .to(DEVICE) — device_map='auto' can break
         print(f"  ✅ NLLB loaded")
         return True
     except Exception as e:
