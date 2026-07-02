@@ -750,7 +750,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 25929 chars / 631 lines
+**Length:** 26412 chars / 632 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -1085,136 +1085,137 @@ except Exception as e:
 print()
 
 # ═══════════════════════════════════════════════════════════
-# MODEL 3: Qwen 2.5 VL 3B (Backup OCR)
+# MODEL 3: Qwen 2.5 VL 3B (Backup OCR) — OPTIONAL
 # ═══════════════════════════════════════════════════════════
+# Default: SKIP (Baidu দিয়েই fast + accurate output পাওয়া যাচ্ছে)
+# Qwen লোড করলে ~6GB GPU memory বাড়ে, যা Baidu inference এ OOM করতে পারে।
+# চাইলে CONFIG['enable_qwen_vl'] = True করে enable করতে পারো।
 print("─" * 60)
 print("  📖 Model 3/4: Qwen 2.5 VL 3B Instruct (Backup OCR)")
 print("─" * 60)
 
 qwen_load_start = time.time()
 qwen_vl_ocr = None
-try:
-    from transformers import AutoProcessor
-    # Try Qwen2.5-VL first (newer), fall back to Qwen2-VL
-    try:
-        from transformers import Qwen2_5_VLForConditionalGeneration as QwenModel
-        print(f"  ℹ️ Using Qwen2_5_VLForConditionalGeneration")
-    except ImportError:
-        from transformers import Qwen2VLForConditionalGeneration as QwenModel
-        print(f"  ℹ️ Using Qwen2VLForConditionalGeneration (2.5 not available)")
 
-    QWEN_MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
+# Check if Qwen is enabled (default: False — Baidu is enough)
+_qwen_enabled = CONFIG.get('enable_qwen_vl', False)
 
-    print(f"  📥 Loading {QWEN_MODEL_ID}...")
-    print(f"     (using device_map='auto' to avoid OOM during .to(DEVICE))")
-
-    # ─── FIX: CUDA OOM during .to(DEVICE) ───────────────────────
-    # আগে আমরা `.to(DEVICE)` করতাম যেটা PyTorch এ একটা temporary
-    # copy তৈরি করে → memory double হয়ে যায় → OOM।
-    # এখন `device_map='auto'` + `low_cpu_mem_usage=True` দিয়ে
-    # directly GPU তে load করছি (no temporary copy)।
-    # ─────────────────────────────────────────────────────────────
-    qwen_vl_model = QwenModel.from_pretrained(
-        QWEN_MODEL_ID,
-        cache_dir=qwen_cache_dir,
-        torch_dtype=DEVICE_TORCH_DTYPE,
-        trust_remote_code=True,
-        low_cpu_mem_usage=True,
-        device_map='auto' if DEVICE == 'cuda' else None,
-    )
-    qwen_vl_model.eval()
-    print(f"  ✅ Qwen model loaded to device(s): "
-          f"{set(p.device for p in qwen_vl_model.parameters())}")
-
-    qwen_vl_processor = AutoProcessor.from_pretrained(
-        QWEN_MODEL_ID,
-        cache_dir=qwen_cache_dir,
-        trust_remote_code=True,
-    )
-
-    class QwenVLOCRWrapper:
-        """Wrapper around Qwen 2.5 VL for OCR."""
-        def __init__(self, model, processor, device):
-            self.model = model
-            self.processor = processor
-            self.device = device
-
-        @torch.no_grad()
-        def recognize(self, image_np):
-            """Recognize text. Returns (text, confidence)."""
-            try:
-                # Clear CUDA cache before inference
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-                if isinstance(image_np, np.ndarray):
-                    pil_img = Image.fromarray(image_np.astype(np.uint8))
-                else:
-                    pil_img = image_np
-
-                prompt_text = (
-                    "Extract all text visible in this image exactly as written. "
-                    "Return only the raw text content, nothing else. "
-                    "If there is no readable text, return empty string."
-                )
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "image": pil_img},
-                            {"type": "text", "text": prompt_text},
-                        ],
-                    }
-                ]
-
-                chat_text = self.processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-                inputs = self.processor(
-                    text=chat_text, images=[pil_img],
-                    return_tensors='pt', padding=True,
-                )
-                # ─── FIX: device_map='auto' এর জন্য proper device handling ──
-                # Model এর parameter গুলোর উপর ভিত্তি করে actual device বের করি
-                # (device_map='auto' হলে model একাধিক device-এ থাকতে পারে)
-                try:
-                    # প্রথম parameter এর device নাও (input embeddings)
-                    model_device = next(self.model.parameters()).device
-                except Exception:
-                    model_device = self.device
-
-                inputs = {
-                    k: (v.to(model_device).to(DEVICE_TORCH_DTYPE)
-                        if v.dtype.is_floating_point else v.to(model_device))
-                    for k, v in inputs.items() if isinstance(v, torch.Tensor)
-                }
-
-                output_ids = self.model.generate(**inputs, max_new_tokens=256)
-                generated = output_ids[:, inputs['input_ids'].shape[1]:]
-                text = self.processor.batch_decode(
-                    generated, skip_special_tokens=True
-                )[0].strip()
-
-                confidence = 0.80 if len(text) > 0 else 0.0
-                return text, confidence
-            except Exception as e:
-                return f'[OCR_FAILED: {str(e)[:30]}]', 0.0
-
-    qwen_vl_ocr = QwenVLOCRWrapper(qwen_vl_model, qwen_vl_processor, DEVICE)
-    qwen_load_time = time.time() - qwen_load_start
-    print(f"  ✅ Qwen VL loaded in {qwen_load_time:.1f}s on {DEVICE}")
-    models_loaded['qwen'] = True
-except Exception as e:
-    qwen_load_time = time.time() - qwen_load_start
-    import traceback
-    print(f"  ❌ Qwen VL load failed ({qwen_load_time:.1f}s): {str(e)[:150]}")
-    print(f"  📍 Last 3 traceback lines:")
-    for line in traceback.format_exc().split('\n')[-5:-1]:
-        if line.strip():
-            print(f"     {line}")
-    print(f"  ⚠️ Qwen fallback: শুধু Baidu থাকবে (backup থাকবে না)")
+if not _qwen_enabled:
+    print(f"  ⏭️  Qwen VL skipped (CONFIG['enable_qwen_vl'] = False)")
+    print(f"  💡 Baidu দিয়েই fast + accurate OCR হবে — Qwen এর দরকার নেই")
+    print(f"  💡 চাইলে Cell 2-তে CONFIG['enable_qwen_vl'] = True করে enable করতে পারো")
     models_loaded['qwen'] = False
     qwen_vl_ocr = None
+    # Ensure Baidu is primary if it's available
+    if baidu_ocr is not None:
+        CONFIG['ocr_engine'] = 'baidu'
+        print(f"  ✅ OCR engine: baidu (primary, only)")
+else:
+    try:
+        from transformers import AutoProcessor
+        # Try Qwen2.5-VL first (newer), fall back to Qwen2-VL
+        try:
+            from transformers import Qwen2_5_VLForConditionalGeneration as QwenModel
+            print(f"  ℹ️ Using Qwen2_5_VLForConditionalGeneration")
+        except ImportError:
+            from transformers import Qwen2VLForConditionalGeneration as QwenModel
+            print(f"  ℹ️ Using Qwen2VLForConditionalGeneration (2.5 not available)")
+
+        QWEN_MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
+
+        print(f"  📥 Loading {QWEN_MODEL_ID}...")
+        print(f"     (using device_map='auto' to avoid OOM during .to(DEVICE))")
+
+        qwen_vl_model = QwenModel.from_pretrained(
+            QWEN_MODEL_ID,
+            cache_dir=qwen_cache_dir,
+            torch_dtype=DEVICE_TORCH_DTYPE,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            device_map='auto' if DEVICE == 'cuda' else None,
+        )
+        qwen_vl_model.eval()
+        print(f"  ✅ Qwen model loaded to device(s): "
+              f"{set(p.device for p in qwen_vl_model.parameters())}")
+
+        qwen_vl_processor = AutoProcessor.from_pretrained(
+            QWEN_MODEL_ID,
+            cache_dir=qwen_cache_dir,
+            trust_remote_code=True,
+        )
+
+        class QwenVLOCRWrapper:
+            """Wrapper around Qwen 2.5 VL for OCR."""
+            def __init__(self, model, processor, device):
+                self.model = model
+                self.processor = processor
+                self.device = device
+
+            @torch.no_grad()
+            def recognize(self, image_np):
+                """Recognize text. Returns (text, confidence)."""
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if isinstance(image_np, np.ndarray):
+                        pil_img = Image.fromarray(image_np.astype(np.uint8))
+                    else:
+                        pil_img = image_np
+                    prompt_text = (
+                        "Extract all text visible in this image exactly as written. "
+                        "Return only the raw text content, nothing else. "
+                        "If there is no readable text, return empty string."
+                    )
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "image": pil_img},
+                                {"type": "text", "text": prompt_text},
+                            ],
+                        }
+                    ]
+                    chat_text = self.processor.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                    inputs = self.processor(
+                        text=chat_text, images=[pil_img],
+                        return_tensors='pt', padding=True,
+                    )
+                    try:
+                        model_device = next(self.model.parameters()).device
+                    except Exception:
+                        model_device = self.device
+                    inputs = {
+                        k: (v.to(model_device).to(DEVICE_TORCH_DTYPE)
+                            if v.dtype.is_floating_point else v.to(model_device))
+                        for k, v in inputs.items() if isinstance(v, torch.Tensor)
+                    }
+                    output_ids = self.model.generate(**inputs, max_new_tokens=256)
+                    generated = output_ids[:, inputs['input_ids'].shape[1]:]
+                    text = self.processor.batch_decode(
+                        generated, skip_special_tokens=True
+                    )[0].strip()
+                    confidence = 0.80 if len(text) > 0 else 0.0
+                    return text, confidence
+                except Exception as e:
+                    return f'[OCR_FAILED: {str(e)[:30]}]', 0.0
+
+        qwen_vl_ocr = QwenVLOCRWrapper(qwen_vl_model, qwen_vl_processor, DEVICE)
+        qwen_load_time = time.time() - qwen_load_start
+        print(f"  ✅ Qwen VL loaded in {qwen_load_time:.1f}s on {DEVICE}")
+        models_loaded['qwen'] = True
+    except Exception as e:
+        qwen_load_time = time.time() - qwen_load_start
+        import traceback
+        print(f"  ❌ Qwen VL load failed ({qwen_load_time:.1f}s): {str(e)[:150]}")
+        print(f"  📍 Last 3 traceback lines:")
+        for line in traceback.format_exc().split('\n')[-5:-1]:
+            if line.strip():
+                print(f"     {line}")
+        print(f"  ⚠️ Qwen fallback: শুধু Baidu থাকবে (backup থাকবে না)")
+        models_loaded['qwen'] = False
+        qwen_vl_ocr = None
 
 print()
 
