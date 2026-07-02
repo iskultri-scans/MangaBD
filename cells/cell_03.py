@@ -228,6 +228,11 @@ try:
             Returns: (text, confidence)
             """
             try:
+                # Clear CUDA cache before inference — Baidu + Qwen দুটোই
+                # GPU তে আছে, তাই inference এর আগে cache clear দরকার।
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
                 if isinstance(image_np, np.ndarray):
                     pil_img = Image.fromarray(image_np.astype(np.uint8))
                 else:
@@ -383,6 +388,10 @@ try:
         def recognize(self, image_np):
             """Recognize text. Returns (text, confidence)."""
             try:
+                # Clear CUDA cache before inference
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
                 if isinstance(image_np, np.ndarray):
                     pil_img = Image.fromarray(image_np.astype(np.uint8))
                 else:
