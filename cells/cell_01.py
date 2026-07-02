@@ -45,7 +45,9 @@ CORE_PACKAGES = [
     "Pillow>=10.0.0",            # libraqm support থাকে Colab-এ
     "opencv-python-headless>=4.8.0",
     # ML / transformers
-    "transformers>=4.40.0",
+    # NOTE: Baidu Unlimited-OCR এর documentation বলছে transformers==4.57.1
+    # দরকার। আমরা সেটাই pin করছি যাতে Baidu এর custom code ঠিকভাবে চলে।
+    "transformers==4.57.1",
     "huggingface_hub>=0.20.0",
     "accelerate>=0.25.0",
     "bitsandbytes>=0.41.0",
@@ -60,8 +62,11 @@ CORE_PACKAGES = [
     "pyclipper>=1.3.0",
     "networkx>=3.0",
     "scikit-image>=0.21.0",
-    # Baidu OCR dep (needed by baidu/Unlimited-OCR trust_remote_code)
+    # Baidu OCR deps (needed by baidu/Unlimited-OCR trust_remote_code)
+    # Official requirements from https://huggingface.co/baidu/Unlimited-OCR
     "addict>=2.4.0",
+    "easydict>=1.13",
+    "pymupdf>=1.27.0",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",

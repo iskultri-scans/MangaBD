@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 9300 chars / 266 lines
+**Length:** 9569 chars / 271 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -59,7 +59,9 @@ CORE_PACKAGES = [
     "Pillow>=10.0.0",            # libraqm support থাকে Colab-এ
     "opencv-python-headless>=4.8.0",
     # ML / transformers
-    "transformers>=4.40.0",
+    # NOTE: Baidu Unlimited-OCR এর documentation বলছে transformers==4.57.1
+    # দরকার। আমরা সেটাই pin করছি যাতে Baidu এর custom code ঠিকভাবে চলে।
+    "transformers==4.57.1",
     "huggingface_hub>=0.20.0",
     "accelerate>=0.25.0",
     "bitsandbytes>=0.41.0",
@@ -74,8 +76,11 @@ CORE_PACKAGES = [
     "pyclipper>=1.3.0",
     "networkx>=3.0",
     "scikit-image>=0.21.0",
-    # Baidu OCR dep (needed by baidu/Unlimited-OCR trust_remote_code)
+    # Baidu OCR deps (needed by baidu/Unlimited-OCR trust_remote_code)
+    # Official requirements from https://huggingface.co/baidu/Unlimited-OCR
     "addict>=2.4.0",
+    "easydict>=1.13",
+    "pymupdf>=1.27.0",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
@@ -741,7 +746,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 24383 chars / 595 lines
+**Length:** 25550 chars / 622 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -890,36 +895,42 @@ print("─" * 60)
 baidu_load_start = time.time()
 baidu_ocr = None
 try:
-    # Baidu OCR-এর trust_remote_code modeling file 'addict' package চায়।
-    # Cell 1-এ যোগ করা আছে, কিন্তু যদি কেউ Cell 1 না চালিয়ে থাকে,
-    # এখানে inline install করে নিচ্ছি safety হিসেবে।
-    try:
-        import addict
-    except ImportError:
-        import subprocess
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', 'addict'],
-                       check=False)
-        import addict
-    print(f"  ✅ addict package available (Baidu OCR dependency)")
+    # ─── Baidu OCR: Official API from HuggingFace ───────────────
+    # Source: https://huggingface.co/baidu/Unlimited-OCR
+    # Requirements: transformers==4.57.1, addict, easydict, pymupdf
+    # Uses: torch.bfloat16 (NOT float16), use_safetensors=True
+    # API: model.infer(tokenizer, prompt, image_file, output_path, ...)
+    # ─────────────────────────────────────────────────────────────
 
-    # ─── FIX: transformers compatibility shim ───────────────────
-    # নতুন transformers (4.50+) এ 'is_torch_fx_available' সরিয়ে দেওয়া হয়েছে।
-    # Baidu-এর modeling_deepseekv2.py পুরোনো API চায় — তাই এখানে
-    # monkey-patch করে missing function টা inject করছি (no-op হিসেবে)।
-    import transformers.utils.import_utils as _tui
-    if not hasattr(_tui, 'is_torch_fx_available'):
-        _tui.is_torch_fx_available = lambda *args, **kwargs: False
-        print(f"  ✅ Patched transformers.is_torch_fx_available (Baidu compat)")
-    # একই ভাবে আরো কিছু missing function থাকতে পারে — inject করি
-    if not hasattr(_tui, 'is_torch_fx_tracer_available'):
-        _tui.is_torch_fx_tracer_available = lambda *args, **kwargs: False
+    # Install deps inline (safety net if Cell 1 not run)
+    import subprocess
+    for pkg in ['addict', 'easydict', 'pymupdf']:
+        try:
+            __import__(pkg if pkg != 'pymupdf' else 'fitz')
+        except ImportError:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', pkg],
+                          check=False)
+    print(f"  ✅ Baidu deps available (addict, easydict, pymupdf)")
 
-    from transformers import AutoModel, AutoTokenizer, AutoConfig
+    # ─── transformers version check ─────────────────────────────
+    # Baidu Unlimited-OCR requires transformers==4.57.1 (per official docs).
+    # Cell 1 pins this version. If user is on older/newer version, warn them.
+    import transformers
+    tf_ver = tuple(int(x) for x in transformers.__version__.split('.')[:3])
+    if tf_ver < (4, 50, 0):
+        print(f"  ⚠️ transformers {transformers.__version__} — Baidu needs 4.57.1")
+        print(f"     Run: !pip install -q transformers==4.57.1")
+    elif tf_ver != (4, 57, 1):
+        print(f"  ℹ️ transformers {transformers.__version__} (Baidu recommends 4.57.1)")
+
+    from transformers import AutoModel, AutoTokenizer
+    import tempfile
 
     BAIDU_MODEL_ID = 'baidu/Unlimited-OCR'
 
     print(f"  📥 Loading {BAIDU_MODEL_ID}...")
-    print(f"     (first time ~1.5GB download to Drive, later cached)")
+    print(f"     (first time ~6.7GB download to Drive, later cached)")
+    print(f"     Using OFFICIAL API: torch.bfloat16 + use_safetensors + model.infer()")
 
     baidu_tokenizer = AutoTokenizer.from_pretrained(
         BAIDU_MODEL_ID,
@@ -927,101 +938,122 @@ try:
         trust_remote_code=True,
     )
 
-    # ─── FIX: 'pad_token_id' missing on UnlimitedOCRConfig ───────
-    # transformers 4.50+ generate() এর সময় config.pad_token_id access করে।
-    # Baidu এর custom UnlimitedOCRConfig এটা define করে না।
-    # Solution: config আগে load করে, missing attribute গুলো inject করি।
-    baidu_config = AutoConfig.from_pretrained(
-        BAIDU_MODEL_ID,
-        cache_dir=baidu_cache_dir,
-        trust_remote_code=True,
-    )
-    # Inject missing attributes with safe defaults
-    pad_id = getattr(baidu_tokenizer, 'pad_token_id', None)
-    if pad_id is None:
-        # Try bos/eos as fallback
-        pad_id = getattr(baidu_tokenizer, 'bos_token_id', None) or \
-                 getattr(baidu_tokenizer, 'eos_token_id', None) or 0
-    if not hasattr(baidu_config, 'pad_token_id') or baidu_config.pad_token_id is None:
-        baidu_config.pad_token_id = pad_id
-        print(f"  ✅ Patched config.pad_token_id = {pad_id}")
-    # Other commonly-missing attributes (prevent future errors)
-    for attr, default in [
-        ('bos_token_id', getattr(baidu_tokenizer, 'bos_token_id', None) or 1),
-        ('eos_token_id', getattr(baidu_tokenizer, 'eos_token_id', None) or 2),
-        ('decoder_start_token_id', pad_id),
-        ('vocab_size', len(baidu_tokenizer)),
-    ]:
-        if not hasattr(baidu_config, attr) or getattr(baidu_config, attr) is None:
-            try:
-                setattr(baidu_config, attr, default)
-            except Exception:
-                pass  # read-only attribute — skip silently
-
-    # Use low_cpu_mem_usage + device_map='auto' to avoid OOM during loading
+    # ─── OFFICIAL LOADING (from HuggingFace page) ───────────────
+    # Key differences from before:
+    #   - torch_dtype=torch.bfloat16 (NOT float16 — bfloat16 is required)
+    #   - use_safetensors=True (loads .safetensors, not .bin)
+    #   - NO device_map='auto' (official code uses .cuda() after load)
+    #   - NO low_cpu_mem_usage (can break custom code)
     baidu_model = AutoModel.from_pretrained(
         BAIDU_MODEL_ID,
-        config=baidu_config,
         cache_dir=baidu_cache_dir,
         trust_remote_code=True,
-        torch_dtype=DEVICE_TORCH_DTYPE,
-        low_cpu_mem_usage=True,
-        device_map='auto' if DEVICE == 'cuda' else None,
+        use_safetensors=True,
+        torch_dtype=torch.bfloat16,
     )
-    baidu_model.eval()
-    print(f"  ✅ Baidu model loaded to device(s): "
-          f"{set(p.device for p in baidu_model.parameters())}")
+    baidu_model = baidu_model.eval()
+    if DEVICE == 'cuda':
+        baidu_model = baidu_model.cuda()
+    print(f"  ✅ Baidu model loaded on {DEVICE} (bfloat16)")
+
+    # Verify model has .infer() method (official API)
+    if not hasattr(baidu_model, 'infer'):
+        print(f"  ⚠️ Model doesn't have .infer() method — Baidu may not work")
+        raise AttributeError("model.infer() not found")
 
     class BaiduOCRWrapper:
-        """Wrapper around Baidu Unlimited OCR."""
+        """Wrapper around Baidu Unlimited OCR using official .infer() API."""
         def __init__(self, model, tokenizer, device):
             self.model = model
             self.tokenizer = tokenizer
             self.device = device
+            # Temp directory for image files (infer() takes file paths)
+            self._temp_dir = tempfile.mkdtemp(prefix='baidu_ocr_')
 
         @torch.no_grad()
         def recognize(self, image_np):
-            """Recognize text from cropped RGB image. Returns (text, confidence)."""
+            """
+            Recognize text from cropped RGB image.
+            Uses official model.infer() API — saves image to temp file,
+            runs inference, reads result.
+            Returns: (text, confidence)
+            """
             try:
                 if isinstance(image_np, np.ndarray):
                     pil_img = Image.fromarray(image_np.astype(np.uint8))
                 else:
                     pil_img = image_np
 
-                # Baidu OCR has a `.chat()` method (similar to Qwen-VL API)
-                if hasattr(self.model, 'chat'):
-                    msgs = [{'role': 'user', 'content': pil_img}]
-                    try:
-                        response = self.model.chat(
-                            self.tokenizer, msgs,
-                            sampling=False,
-                        )
-                    except Exception:
-                        # Some versions take different args
-                        response = self.model.chat(
-                            self.tokenizer, msgs,
-                        )
-                    text = response[0] if isinstance(response, (list, tuple)) else str(response)
-                    return text.strip(), 0.85
-                elif hasattr(self.model, 'ocr'):
-                    result = self.model.ocr(pil_img)
-                    text = result[0] if isinstance(result, (list, tuple)) else str(result)
-                    return text.strip(), 0.85
+                # Save PIL image to temp file (infer() needs file path)
+                import uuid
+                temp_img_path = os.path.join(self._temp_dir, f"img_{uuid.uuid4().hex[:8]}.jpg")
+                pil_img.save(temp_img_path, format='JPEG', quality=95)
+
+                # Output directory for results
+                output_dir = os.path.join(self._temp_dir, f"out_{uuid.uuid4().hex[:8]}")
+                os.makedirs(output_dir, exist_ok=True)
+
+                # ─── Official .infer() call ───────────────────────
+                # From HuggingFace: model.infer(tokenizer, prompt, image_file, output_path, ...)
+                # prompt: '<image>document parsing.' for single image
+                # base_size=1024, image_size=640, crop_mode=True (gundam config)
+                result = self.model.infer(
+                    self.tokenizer,
+                    prompt='<image>document parsing.',
+                    image_file=temp_img_path,
+                    output_path=output_dir,
+                    base_size=1024,
+                    image_size=640,
+                    crop_mode=True,
+                    max_length=32768,
+                    no_repeat_ngram_size=35,
+                    ngram_window=128,
+                    save_results=False,  # don't save to file, get return value
+                )
+
+                # Parse result — could be string, dict, or saved in output_dir
+                text = ''
+                if isinstance(result, str):
+                    text = result
+                elif isinstance(result, dict):
+                    text = result.get('text', result.get('result', ''))
+                elif isinstance(result, (list, tuple)) and len(result) > 0:
+                    text = str(result[0]) if not isinstance(result[0], dict) else \
+                           result[0].get('text', str(result[0]))
                 else:
-                    # Generic generate API fallback
-                    inputs = self.tokenizer(
-                        "OCR: recognize text in image",
-                        return_tensors='pt'
-                    ).to(self.device)
-                    output = self.model.generate(**inputs, max_new_tokens=512)
-                    text = self.tokenizer.decode(output[0], skip_special_tokens=True)
-                    return text.strip(), 0.75
+                    # Check output directory for result file
+                    if os.path.exists(output_dir):
+                        for fname in os.listdir(output_dir):
+                            if fname.endswith('.txt') or fname.endswith('.md'):
+                                with open(os.path.join(output_dir, fname)) as f:
+                                    text = f.read()
+                                break
+
+                # Cleanup temp files
+                try:
+                    os.remove(temp_img_path)
+                    import shutil
+                    shutil.rmtree(output_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+                # Clean up text — remove markdown formatting if present
+                text = text.strip()
+                # Remove common markdown artifacts
+                import re
+                text = re.sub(r'^```+\w*\n?', '', text)
+                text = re.sub(r'\n?```+$', '', text)
+                text = text.strip()
+
+                confidence = 0.85 if len(text) > 0 else 0.0
+                return text, confidence
             except Exception as e:
                 return f'[OCR_FAILED: {str(e)[:30]}]', 0.0
 
     baidu_ocr = BaiduOCRWrapper(baidu_model, baidu_tokenizer, DEVICE)
     baidu_load_time = time.time() - baidu_load_start
     print(f"  ✅ Baidu OCR loaded in {baidu_load_time:.1f}s on {DEVICE}")
+    print(f"  📍 Using official model.infer() API")
     models_loaded['baidu'] = True
 except Exception as e:
     baidu_load_time = time.time() - baidu_load_start
