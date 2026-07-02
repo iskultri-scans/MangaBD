@@ -65,19 +65,26 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         try:
             # Cell 1-এ textline_merge/__init__.py আগে empty stub করা হতো।
             # V11 এখন original file ব্যবহার করে। কিন্তু যদি user Cell 1
-            # আবার না চালিয়ে থাকে, এখানে restore করে নিচ্ছি safety হিসেবে।
+            # আবার না চালিয়ে থাকে (পুরোনো stub file এখনো আছে),
+            # এখানে actual file overwrite করে reload করছি।
             import manga_translator.textline_merge as _tlm
             if not hasattr(_tlm, 'dispatch'):
-                # Stubbed — restore original from zyddnys repo
-                _tlm_path = os.path.join(CONFIG.get('mii_path', '/content/manga-image-translator'),
-                                          'manga_translator/textline_merge/__init__.py')
-                if os.path.exists(_tlm_path):
-                    import importlib
-                    # Read original content and exec it
-                    with open(_tlm_path) as f:
+                # Stubbed — restore original file from zyddnys repo
+                _orig_path = os.path.join(
+                    CONFIG.get('mii_path', '/content/manga-image-translator'),
+                    'manga_translator/textline_merge/__init__.py'
+                )
+                if os.path.exists(_orig_path) and _tlm.__file__:
+                    # Read original source from zyddnys repo
+                    with open(_orig_path) as f:
                         _orig_src = f.read()
-                    exec(_orig_src, _tlm.__dict__)
+                    # Overwrite the stubbed __init__.py with original content
+                    with open(_tlm.__file__, 'w') as f:
+                        f.write(_orig_src)
+                    # Force re-import (clear cache + reload)
+                    import importlib
                     importlib.reload(_tlm)
+                    print(f"    🔧 Restored textline_merge from zyddnys repo")
 
             from manga_translator.textline_merge import dispatch as merge_dispatch
             img_h, img_w = image_np.shape[:2]
