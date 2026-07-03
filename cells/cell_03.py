@@ -265,23 +265,51 @@ try:
                     save_results=False,  # don't save to file, get return value
                 )
 
-                # Parse result — could be string, dict, or saved in output_dir
+                # Parse result — Baidu returns string with <|det|> tags
+                # Format: <|det|>title [x1,y1,x2,y2]<|/det|>ACTUAL TEXT
+                #         <|det|>text [x1,y1,x2,y2]<|/det|>MORE TEXT
+                # We need to extract the text AFTER <|/det|> tags
+                import re
                 text = ''
                 if isinstance(result, str):
-                    text = result
+                    raw = result
                 elif isinstance(result, dict):
-                    text = result.get('text', result.get('result', ''))
+                    raw = result.get('text', result.get('result', ''))
                 elif isinstance(result, (list, tuple)) and len(result) > 0:
-                    text = str(result[0]) if not isinstance(result[0], dict) else \
-                           result[0].get('text', str(result[0]))
+                    raw = str(result[0]) if not isinstance(result[0], dict) else \
+                          result[0].get('text', str(result[0]))
                 else:
                     # Check output directory for result file
+                    raw = ''
                     if os.path.exists(output_dir):
                         for fname in os.listdir(output_dir):
                             if fname.endswith('.txt') or fname.endswith('.md'):
                                 with open(os.path.join(output_dir, fname)) as f:
-                                    text = f.read()
+                                    raw = f.read()
                                 break
+
+                # ─── Parse Baidu's <|det|> format ──────────────────
+                # Find all text segments after <|/det|> tags
+                # Pattern: <|/det|>TEXT (until next <|det|> or end)
+                if raw and '<|' in raw:
+                    # Extract text after each <|/det|> tag
+                    segments = re.findall(r'<\|/det\|>(.*?)(?=<\|det\|>|$)', raw, re.DOTALL)
+                    if segments:
+                        # Join all segments with newlines, clean each
+                        cleaned_segments = []
+                        for seg in segments:
+                            seg = seg.strip()
+                            # Remove coordinate-like artifacts: [123, 456, 789, 012]
+                            seg = re.sub(r'\[\d+,\s*\d+,\s*\d+,\s*\d+\]', '', seg)
+                            seg = seg.strip()
+                            if seg:
+                                cleaned_segments.append(seg)
+                        text = '\n'.join(cleaned_segments)
+                    else:
+                        # No tags found — use raw but strip tags
+                        text = re.sub(r'<\|[^|]*\|>', '', raw).strip()
+                else:
+                    text = raw.strip() if raw else ''
 
                 # Cleanup temp files
                 try:
@@ -291,12 +319,14 @@ try:
                 except Exception:
                     pass
 
-                # Clean up text — remove markdown formatting if present
+                # Final cleanup — remove markdown artifacts
                 text = text.strip()
-                # Remove common markdown artifacts
-                import re
                 text = re.sub(r'^```+\w*\n?', '', text)
                 text = re.sub(r'\n?```+$', '', text)
+                # Remove leftover LaTeX/math artifacts that Baidu sometimes adds
+                text = re.sub(r'\\\([^\)]*\)', '', text)  # \( ... \)
+                text = re.sub(r'\\\[[^\]]*\]', '', text)  # \[ ... \]
+                text = re.sub(r'\s+', ' ', text)  # normalize whitespace
                 text = text.strip()
 
                 confidence = 0.85 if len(text) > 0 else 0.0
