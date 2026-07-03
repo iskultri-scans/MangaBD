@@ -743,7 +743,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 29321 chars / 685 lines
+**Length:** 29335 chars / 685 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -1052,12 +1052,12 @@ try:
                                         content = f.read()
                                     if content.strip():
                                         raw = content
-                                        print(f"      [DEBUG] read from {fname}: {content[:100]}", file=_sys)
+                                        print(f"      [DEBUG] read from {fname}: {content[:100]}", file=_sys.stderr)
                                         break
                                 except Exception:
                                     pass
 
-                print(f"      [DEBUG] raw text length: {len(str(raw))}", file=_sys)
+                print(f"      [DEBUG] raw text length: {len(str(raw))}", file=_sys.stderr)
 
                 # ─── Parse Baidu's <|det|> format ──────────────────
                 # Find all text segments after <|/det|> tags

@@ -304,12 +304,12 @@ try:
                                         content = f.read()
                                     if content.strip():
                                         raw = content
-                                        print(f"      [DEBUG] read from {fname}: {content[:100]}", file=_sys)
+                                        print(f"      [DEBUG] read from {fname}: {content[:100]}", file=_sys.stderr)
                                         break
                                 except Exception:
                                     pass
 
-                print(f"      [DEBUG] raw text length: {len(str(raw))}", file=_sys)
+                print(f"      [DEBUG] raw text length: {len(str(raw))}", file=_sys.stderr)
 
                 # ─── Parse Baidu's <|det|> format ──────────────────
                 # Find all text segments after <|/det|> tags
