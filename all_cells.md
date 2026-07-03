@@ -2124,7 +2124,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 13882 chars / 376 lines
+**Length:** 15988 chars / 431 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2194,19 +2194,26 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         try:
             # Cell 1-এ textline_merge/__init__.py আগে empty stub করা হতো।
             # V11 এখন original file ব্যবহার করে। কিন্তু যদি user Cell 1
-            # আবার না চালিয়ে থাকে, এখানে restore করে নিচ্ছি safety হিসেবে।
+            # আবার না চালিয়ে থাকে (পুরোনো stub file এখনো আছে),
+            # এখানে actual file overwrite করে reload করছি।
             import manga_translator.textline_merge as _tlm
             if not hasattr(_tlm, 'dispatch'):
-                # Stubbed — restore original from zyddnys repo
-                _tlm_path = os.path.join(CONFIG.get('mii_path', '/content/manga-image-translator'),
-                                          'manga_translator/textline_merge/__init__.py')
-                if os.path.exists(_tlm_path):
-                    import importlib
-                    # Read original content and exec it
-                    with open(_tlm_path) as f:
+                # Stubbed — restore original file from zyddnys repo
+                _orig_path = os.path.join(
+                    CONFIG.get('mii_path', '/content/manga-image-translator'),
+                    'manga_translator/textline_merge/__init__.py'
+                )
+                if os.path.exists(_orig_path) and _tlm.__file__:
+                    # Read original source from zyddnys repo
+                    with open(_orig_path) as f:
                         _orig_src = f.read()
-                    exec(_orig_src, _tlm.__dict__)
+                    # Overwrite the stubbed __init__.py with original content
+                    with open(_tlm.__file__, 'w') as f:
+                        f.write(_orig_src)
+                    # Force re-import (clear cache + reload)
+                    import importlib
                     importlib.reload(_tlm)
+                    print(f"    🔧 Restored textline_merge from zyddnys repo")
 
             from manga_translator.textline_merge import dispatch as merge_dispatch
             img_h, img_w = image_np.shape[:2]
@@ -2331,6 +2338,54 @@ def crop_region(image_np, region, padding=4):
         return image_np[y1:y2, x1:x2].copy()
     except Exception:
         return np.zeros((10, 10, 3), dtype=np.uint8)
+
+
+def crop_bubble_with_context(image_np, region, context_ratio=0.15):
+    """
+    পুরো bubble সহ context সহ crop করো — যাতে Baidu পুরো লেখা পড়তে পারে।
+
+    সমস্যা: textline_merge শুধু text lines গুলোকে group করে, কিন্তু
+    bounding box শুধু text এর উপর থাকে। Bubble এর border বা
+    text এর উপরের/নিচের অংশ কেটে যেতে পারে।
+
+    Solution: bounding box কে context_ratio দিয়ে expand করি
+    (default 15% প্রতিদিকে)। এতে পুরো bubble + কিছু background যায়।
+
+    Args:
+        image_np: BGR image
+        region: dict with 'xywh' or 'xyxy'
+        context_ratio: 0.0-0.5, কতটুকু expand করবে (default 0.15 = 15%)
+    Returns: cropped BGR image (with white padding if near edge)
+    """
+    try:
+        x1, y1, x2, y2 = region['xyxy']
+        h_img, w_img = image_np.shape[:2]
+        w_region = x2 - x1
+        h_region = y2 - y1
+
+        # Expand by context_ratio (at least 8px, at most 100px)
+        expand_x = int(max(8, min(100, w_region * context_ratio)))
+        expand_y = int(max(8, min(100, h_region * context_ratio)))
+
+        # New bounds
+        nx1 = max(0, x1 - expand_x)
+        ny1 = max(0, y1 - expand_y)
+        nx2 = min(w_img, x2 + expand_x)
+        ny2 = min(h_img, y2 + expand_y)
+
+        crop = image_np[ny1:ny2, nx1:nx2].copy()
+
+        # If crop is too small, return it anyway
+        if crop.shape[0] < 5 or crop.shape[1] < 5:
+            return crop
+
+        # Add white border padding (Baidu likes some margin around text)
+        border = max(8, min(30, w_region // 8))
+        crop = cv2.copyMakeBorder(crop, border, border, border, border,
+                                   cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        return crop
+    except Exception:
+        return crop_region(image_np, region, padding=4)
 
 
 def crop_region_rotated(image_np, region, padding=4):
@@ -3777,7 +3832,7 @@ print("═" * 60)
 <a id='cell-11'></a>
 ## 🧩 Cell 11 — 🔍 CELL 11 — Detection + OCR + Verification (V11)
 **Source file:** `cell_11_detection_ocr.py`
-**Length:** 9255 chars / 249 lines
+**Length:** 9587 chars / 253 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3852,11 +3907,15 @@ else:
         print(f"    📖 OCR processing {len(regions)} regions...")
         for i, region in enumerate(regions):
             try:
-                # Crop region (rotated if needed)
+                # ─── V11: Use bubble-context crop for better OCR ──────
+                # পুরোনো approach: শুধু text bounding box crop করতাম
+                # সমস্যা: text-এর উপরে/নিচে কিছু অংশ কেটে যেত
+                # নতুন approach: bubble সহ context (15% expand) সহ crop
+                # + white border padding যাতে Baidu পুরো লেখা পড়তে পারে
                 if abs(region.get('angle', 0.0)) > 5.0:
                     crop = crop_region_rotated(img_bgr, region)
                 else:
-                    crop = crop_region(img_bgr, region)
+                    crop = crop_bubble_with_context(img_bgr, region, context_ratio=0.15)
 
                 # Skip tiny crops
                 if crop.shape[0] < 5 or crop.shape[1] < 5:

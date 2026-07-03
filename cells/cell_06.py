@@ -211,6 +211,54 @@ def crop_region(image_np, region, padding=4):
         return np.zeros((10, 10, 3), dtype=np.uint8)
 
 
+def crop_bubble_with_context(image_np, region, context_ratio=0.15):
+    """
+    পুরো bubble সহ context সহ crop করো — যাতে Baidu পুরো লেখা পড়তে পারে।
+
+    সমস্যা: textline_merge শুধু text lines গুলোকে group করে, কিন্তু
+    bounding box শুধু text এর উপর থাকে। Bubble এর border বা
+    text এর উপরের/নিচের অংশ কেটে যেতে পারে।
+
+    Solution: bounding box কে context_ratio দিয়ে expand করি
+    (default 15% প্রতিদিকে)। এতে পুরো bubble + কিছু background যায়।
+
+    Args:
+        image_np: BGR image
+        region: dict with 'xywh' or 'xyxy'
+        context_ratio: 0.0-0.5, কতটুকু expand করবে (default 0.15 = 15%)
+    Returns: cropped BGR image (with white padding if near edge)
+    """
+    try:
+        x1, y1, x2, y2 = region['xyxy']
+        h_img, w_img = image_np.shape[:2]
+        w_region = x2 - x1
+        h_region = y2 - y1
+
+        # Expand by context_ratio (at least 8px, at most 100px)
+        expand_x = int(max(8, min(100, w_region * context_ratio)))
+        expand_y = int(max(8, min(100, h_region * context_ratio)))
+
+        # New bounds
+        nx1 = max(0, x1 - expand_x)
+        ny1 = max(0, y1 - expand_y)
+        nx2 = min(w_img, x2 + expand_x)
+        ny2 = min(h_img, y2 + expand_y)
+
+        crop = image_np[ny1:ny2, nx1:nx2].copy()
+
+        # If crop is too small, return it anyway
+        if crop.shape[0] < 5 or crop.shape[1] < 5:
+            return crop
+
+        # Add white border padding (Baidu likes some margin around text)
+        border = max(8, min(30, w_region // 8))
+        crop = cv2.copyMakeBorder(crop, border, border, border, border,
+                                   cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        return crop
+    except Exception:
+        return crop_region(image_np, region, padding=4)
+
+
 def crop_region_rotated(image_np, region, padding=4):
     """
     Rotated region থেকে image crop করো (perspective transform দিয়ে)।

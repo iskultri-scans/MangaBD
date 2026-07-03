@@ -70,11 +70,15 @@ else:
         print(f"    📖 OCR processing {len(regions)} regions...")
         for i, region in enumerate(regions):
             try:
-                # Crop region (rotated if needed)
+                # ─── V11: Use bubble-context crop for better OCR ──────
+                # পুরোনো approach: শুধু text bounding box crop করতাম
+                # সমস্যা: text-এর উপরে/নিচে কিছু অংশ কেটে যেত
+                # নতুন approach: bubble সহ context (15% expand) সহ crop
+                # + white border padding যাতে Baidu পুরো লেখা পড়তে পারে
                 if abs(region.get('angle', 0.0)) > 5.0:
                     crop = crop_region_rotated(img_bgr, region)
                 else:
-                    crop = crop_region(img_bgr, region)
+                    crop = crop_bubble_with_context(img_bgr, region, context_ratio=0.15)
 
                 # Skip tiny crops
                 if crop.shape[0] < 5 or crop.shape[1] < 5:
