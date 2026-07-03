@@ -276,15 +276,8 @@ print("─" * 60)
 def _run_async(coro):
     """
     zyddnys-এর async functions চালানোর জন্য helper।
-    প্রতিবার fresh coroutine নিশ্চিত করে — যদি coroutine ইতিমধ্যে
-    awaited হয়ে থাকে, fresh coroutine তৈরি করে নতুন করে চালায়।
+    Colab-এ ইতিমধ্যে event loop চলে (nest_asyncio apply করা)।
     """
-    import inspect
-    # যদি ইতিমধ্যে awaited হয়ে থাকে, একটা fresh coroutine দরকার
-    # সাধারণত caller-ই fresh coroutine পাস করে, তাই এটা safety হিসেবে
-    if inspect.iscoroutine(coro):
-        if coro.cr_done or coro.cr_running:
-            raise RuntimeError("Coroutine already awaited or running")
     try:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(coro)
