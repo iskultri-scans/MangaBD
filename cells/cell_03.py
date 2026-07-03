@@ -262,8 +262,20 @@ try:
                     max_length=32768,
                     no_repeat_ngram_size=35,
                     ngram_window=128,
-                    save_results=False,  # don't save to file, get return value
+                    save_results=True,  # save to file — we'll read it
                 )
+
+                # DEBUG: print what we got
+                import sys as _sys
+                print(f"      [DEBUG] result type: {type(result).__name__}", file=_sys.stderr)
+                if result is not None:
+                    print(f"      [DEBUG] result preview: {str(result)[:200]}", file=_sys.stderr)
+
+                # Also check what files were saved in output_dir
+                saved_files = []
+                if os.path.exists(output_dir):
+                    saved_files = os.listdir(output_dir)
+                print(f"      [DEBUG] saved files: {saved_files}", file=_sys.stderr)
 
                 # Parse result — Baidu returns string with <|det|> tags
                 # Format: <|det|>title [x1,y1,x2,y2]<|/det|>ACTUAL TEXT
@@ -271,22 +283,33 @@ try:
                 # We need to extract the text AFTER <|/det|> tags
                 import re
                 text = ''
-                if isinstance(result, str):
+                raw = ''
+                # Try to get text from result first
+                if isinstance(result, str) and result.strip():
                     raw = result
                 elif isinstance(result, dict):
                     raw = result.get('text', result.get('result', ''))
                 elif isinstance(result, (list, tuple)) and len(result) > 0:
                     raw = str(result[0]) if not isinstance(result[0], dict) else \
                           result[0].get('text', str(result[0]))
-                else:
-                    # Check output directory for result file
-                    raw = ''
+
+                # If result is empty/None, read from saved files
+                if not raw or not str(raw).strip():
                     if os.path.exists(output_dir):
                         for fname in os.listdir(output_dir):
-                            if fname.endswith('.txt') or fname.endswith('.md'):
-                                with open(os.path.join(output_dir, fname)) as f:
-                                    raw = f.read()
-                                break
+                            fpath = os.path.join(output_dir, fname)
+                            if fname.endswith('.txt') or fname.endswith('.md') or fname.endswith('.json'):
+                                try:
+                                    with open(fpath) as f:
+                                        content = f.read()
+                                    if content.strip():
+                                        raw = content
+                                        print(f"      [DEBUG] read from {fname}: {content[:100]}", file=_sys)
+                                        break
+                                except Exception:
+                                    pass
+
+                print(f"      [DEBUG] raw text length: {len(str(raw))}", file=_sys)
 
                 # ─── Parse Baidu's <|det|> format ──────────────────
                 # Find all text segments after <|/det|> tags
