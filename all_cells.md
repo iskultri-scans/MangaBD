@@ -743,7 +743,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 29335 chars / 685 lines
+**Length:** 30259 chars / 704 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -1094,10 +1094,29 @@ try:
                 text = text.strip()
                 text = re.sub(r'^```+\w*\n?', '', text)
                 text = re.sub(r'\n?```+$', '', text)
-                # Remove leftover LaTeX/math artifacts that Baidu sometimes adds
-                text = re.sub(r'\\\([^\)]*\)', '', text)  # \( ... \)
-                text = re.sub(r'\\\[[^\]]*\]', '', text)  # \[ ... \]
-                text = re.sub(r'\s+', ' ', text)  # normalize whitespace
+
+                # ─── Extract text from LaTeX/equation format ──────
+                # Baidu কখনো equation গুলো LaTeX হিসেবে return করে:
+                #   \[\left| \begin{array}{c} \text {I'M SURE} \\ \text {I HAVE ONE} \end{array} \right|\]
+                # আমরা \text{...} এর ভেতরের text extract করব
+                if r'\text{' in text:
+                    # Find all \text{...} content
+                    text_parts = re.findall(r'\\text\s*\{([^}]*)\}', text)
+                    if text_parts:
+                        text = ' '.join(text_parts)
+
+                # Remove leftover LaTeX/math artifacts (but keep text)
+                # Only remove if there are no \text{} tags (already extracted above)
+                if r'\text{' not in text:
+                    text = re.sub(r'\\\([^\)]*\)', '', text)  # \( ... \)
+                    text = re.sub(r'\\\[[^\]]*\]', '', text)  # \[ ... \)
+
+                # Remove array/matrix LaTeX commands
+                text = re.sub(r'\\(left|right|begin|end|array|matrix)\{[^}]*\}', '', text)
+                text = re.sub(r'\\(left|right)\|', '', text)
+
+                # Normalize whitespace (newlines → spaces)
+                text = re.sub(r'\s+', ' ', text)
                 text = text.strip()
 
                 confidence = 0.85 if len(text) > 0 else 0.0
