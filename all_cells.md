@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 10864 chars / 303 lines
+**Length:** 13248 chars / 364 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -248,28 +248,89 @@ print("  🔧 PyTorch compatibility shim")
 print("─" * 60)
 
 # zyddnys এর CTD/YOLOv5 code পুরোনো PyTorch এর জন্য লেখা।
-# PyTorch 2.11+ এ torch._utils আর public API তে নেই, কিছু internal
-# function (যেমন _rebuild_tensor) সরিয়ে দেওয়া হয়েছে।
-# এখানে সেগুলো inject করছি যাতে import কাজ করে।
+# PyTorch 2.11+ এ torch._utils module টা exists করে, কিন্তু কিছু
+# internal function (যেমন _rebuild_parameter, _get_device_index)
+# সরিয়ে দেওয়া হয়েছে। এই functions গুলো checkpoint loading এর
+# সময় torch._weights_only_unpickler এ দরকার হয়।
 import torch as _torch
-import torch.nn as _nn
+import types
 
-# Add torch._utils compatibility (used by old YOLOv5 checkpoint loading)
+# torch._utils কে ensure করি যে সে module হিসেবে exists করছে
 if not hasattr(_torch, '_utils'):
-    import types
     _torch._utils = types.ModuleType('torch._utils')
-    # Add common functions that old code expects
-    if hasattr(_torch, '_rebuild_tensor'):
-        _torch._utils._rebuild_tensor = _torch._rebuild_tensor
-    if hasattr(_torch, '_rebuild_parameter'):
-        _torch._utils._rebuild_parameter = _torch._rebuild_parameter
-    # Fallback no-op for missing functions
-    _torch._utils._rebuild_tensor_v2 = getattr(_torch, '_rebuild_tensor_v2',
-        lambda *args, **kwargs: None)
-    print(f"  ✅ Added torch._utils shim (PyTorch {_torch.__version__})")
+    print(f"  ℹ️ Created torch._utils (was missing)")
 else:
-    print(f"  ℹ️ torch._utils already available (PyTorch {_torch.__version__})")
+    print(f"  ℹ️ torch._utils already exists")
 
+# PyTorch এর বিভিন্ন internal function গুলো _utils এ সরিয়ে দেওয়া হয়েছে
+# আমরা সেগুলো আবার যোগ করছি (no-op বা real implementation সহ)
+_added = []
+
+# _rebuild_parameter — used by checkpoint loading
+if not hasattr(_torch._utils, '_rebuild_parameter'):
+    # Real implementation: rebuild a Parameter from data
+    def _rebuild_parameter(data, requires_grad, backward_hooks):
+        param = _torch.nn.Parameter(data, requires_grad=requires_grad)
+        if backward_hooks:
+            param._backward_hooks = backward_hooks
+        return param
+    _torch._utils._rebuild_parameter = _rebuild_parameter
+    _added.append('_rebuild_parameter')
+
+# _rebuild_tensor — used by checkpoint loading
+if not hasattr(_torch._utils, '_rebuild_tensor'):
+    def _rebuild_tensor(storage, storage_offset, size, stride, requires_grad,
+                        backward_hooks, metadata=None):
+        # Create a tensor from storage
+        if isinstance(storage, _torch.Storage):
+            tensor = storage.as_tensor()
+        else:
+            tensor = storage
+        tensor = tensor[offset:offset + size[0]] if size else tensor
+        return tensor
+    _torch._utils._rebuild_tensor = _rebuild_tensor
+    _added.append('_rebuild_tensor')
+
+# _rebuild_tensor_v2 — newer version
+if not hasattr(_torch._utils, '_rebuild_tensor_v2'):
+    def _rebuild_tensor_v2(storage, storage_offset, size, stride, requires_grad,
+                           backward_hooks, metadata=None):
+        return _torch._utils._rebuild_tensor(storage, storage_offset, size, stride,
+                                              requires_grad, backward_hooks, metadata)
+    _torch._utils._rebuild_tensor_v2 = _rebuild_tensor_v2
+    _added.append('_rebuild_tensor_v2')
+
+# _get_device_index — used by torch._dynamo
+if not hasattr(_torch._utils, '_get_device_index'):
+    def _get_device_index(param, optional=False, allow_cpu=False):
+        if param is None:
+            if optional:
+                return None
+            raise RuntimeError("device index is None")
+        if isinstance(param, int):
+            return param
+        if isinstance(param, str):
+            # Parse 'cuda:0' style strings
+            if ':' in param:
+                dev, idx = param.split(':')
+                return int(idx)
+            return -1 if param == 'cpu' else 0
+        if hasattr(param, 'index'):
+            return param.index
+        if hasattr(param, 'idx'):
+            return param.idx
+        return int(param)
+    _torch._utils._get_device_index = _get_device_index
+    _added.append('_get_device_index')
+
+if _added:
+    print(f"  ✅ Added {len(_added)} missing functions to torch._utils:")
+    for fn in _added:
+        print(f"     • torch._utils.{fn}")
+else:
+    print(f"  ✅ All required functions already present")
+
+print(f"  ℹ️ PyTorch version: {_torch.__version__}")
 print()
 
 # ── Verify imports work ────────────────────────────────
