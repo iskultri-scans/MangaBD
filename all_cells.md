@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 13248 chars / 364 lines
+**Length:** 13279 chars / 364 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -81,8 +81,8 @@ CORE_PACKAGES = [
     "addict>=2.4.0",
     "easydict>=1.13",
     "pymupdf>=1.27.0",
-    # YOLOv8 for Comic Bubble Detection (ogkalu/comic-speech-bubble-detector-yolov8m)
-    "ultralytics>=8.2.0",
+    # RT-DETR for Comic Bubble Detection (ogkalu/comic-text-and-bubble-detector)
+    # Uses HuggingFace transformers — no extra package needed
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
@@ -2217,7 +2217,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 24506 chars / 658 lines
+**Length:** 25138 chars / 675 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2426,12 +2426,13 @@ def _compute_quad_angle(pts):
 
 def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
     """
-    Image থেকে speech bubbles detect করো YOLOv8m দিয়ে।
+    Image থেকে speech bubbles detect করো RT-DETR-v2 দিয়ে।
 
-    ব্যবহার: ogkalu/comic-speech-bubble-detector-yolov8m
-    8k manga/webtoon/manhua/comic images এ trained।
-    OpenCV-based detection থেকে অনেক ভালো — সব ধরনের bubble
-    (round, rectangular, thought, etc.) চিনতে পারে।
+    ব্যবহার: ogkalu/comic-text-and-bubble-detector
+    11k manga/webtoon/manhua/comic images এ trained।
+    ৩টা class detect করে: bubble, text_bubble, text_free
+
+    আমরা শুধু 'bubble' class গুলো return করি (text গুলো CTD detect করে)।
 
     Args:
         image_np: BGR image
@@ -2441,53 +2442,70 @@ def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
         list of (x, y, w, h) — bubble bounding boxes
     """
     try:
-        from ultralytics import YOLO
+        from transformers import RTDetrV2ForObjectDetection, AutoProcessor
         import os
 
         # Model path on Drive
-        yolo_model_path = f"{CONFIG['models_dir']}/yolo_bubble_detector.pt"
+        rt_detr_cache_dir = f"{CONFIG['models_dir']}/rt_detr_bubble"
 
-        # Download if not cached
-        if not os.path.exists(yolo_model_path):
-            print(f"    📥 Downloading YOLOv8m bubble detector (~50MB, first time)...")
-            import urllib.request
-            url = "https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m/resolve/main/comic-speech-bubble-detector.pt"
-            urllib.request.urlretrieve(url, yolo_model_path)
-            print(f"    ✅ Downloaded to {yolo_model_path}")
+        # Load model (cache the instance globally)
+        global _rt_detr_bubble_model, _rt_detr_processor
+        if '_rt_detr_bubble_model' not in globals() or _rt_detr_bubble_model is None:
+            print(f"    📥 Loading RT-DETR-v2 bubble detector (first time ~167MB)...")
+            _rt_detr_bubble_model = RTDetrV2ForObjectDetection.from_pretrained(
+                'ogkalu/comic-text-and-bubble-detector',
+                cache_dir=rt_detr_cache_dir,
+            ).to(DEVICE).eval()
+            _rt_detr_processor = AutoProcessor.from_pretrained(
+                'ogkalu/comic-text-and-bubble-detector',
+                cache_dir=rt_detr_cache_dir,
+            )
+            print(f"    ✅ RT-DETR-v2 loaded on {DEVICE}")
 
-        # Load model (cache the instance)
-        global _yolo_bubble_model
-        if '_yolo_bubble_model' not in globals() or _yolo_bubble_model is None:
-            _yolo_bubble_model = YOLO(yolo_model_path)
+        # Preprocess — convert BGR → RGB for HuggingFace
+        image_rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+        from PIL import Image as PILImage
+        pil_img = PILImage.fromarray(image_rgb)
 
         # Run detection
-        # imgsz=1024 (training resolution), conf=0.25 (low threshold to catch all)
-        results = _yolo_bubble_model(image_np, imgsz=1024, conf=0.25, verbose=False)
+        import torch as _torch
+        inputs = _rt_detr_processor(images=pil_img, return_tensors="pt")
+        inputs = {k: v.to(DEVICE) for k, v in inputs.items() if isinstance(v, _torch.Tensor)}
+
+        with _torch.no_grad():
+            outputs = _rt_detr_bubble_model(**inputs)
+
+        # Post-process: extract boxes
+        # threshold=0.3, only keep 'bubble' class (id=0)
+        results = _rt_detr_processor.post_process_object_detection(
+            outputs,
+            target_sizes=[pil_img.size[::-1]],  # (H, W)
+            threshold=0.3,
+        )[0]
 
         bubbles = []
         img_h, img_w = image_np.shape[:2]
         img_area = img_h * img_w
 
-        for r in results:
-            if r.boxes is None:
+        for box, score, label in zip(results["boxes"], results["scores"], results["labels"]):
+            label_id = int(label.item())
+            # Class 0 = bubble (we want this)
+            # Class 1 = text_bubble, Class 2 = text_free (skip — CTD handles text)
+            if label_id != 0:
                 continue
-            for box in r.boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-                w, h = x2 - x1, y2 - y1
-                area = w * h
-                if area < min_area or area > max_area:
-                    continue
-                if area > img_area * 0.5:
-                    continue
-                bubbles.append((int(x1), int(y1), int(w), int(h)))
+            x1, y1, x2, y2 = box.tolist()
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            w, h = x2 - x1, y2 - y1
+            area = w * h
+            if area < min_area or area > max_area:
+                continue
+            if area > img_area * 0.5:
+                continue
+            bubbles.append((x1, y1, w, h))
 
         return bubbles
-    except ImportError:
-        # ultralytics not installed — fall back to OpenCV
-        log_event("ultralytics not installed, using OpenCV fallback", level='WARN')
-        return _detect_speech_bubbles_opencv(image_np, min_area, max_area)
     except Exception as e:
-        log_event(f"Bubble detection failed: {str(e)[:50]}", level='WARN')
+        log_event(f"RT-DETR bubble detection failed: {str(e)[:60]}", level='WARN')
         # Fall back to OpenCV
         return _detect_speech_bubbles_opencv(image_np, min_area, max_area)
 
@@ -2495,7 +2513,6 @@ def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
 def _detect_speech_bubbles_opencv(image_np, min_area=2000, max_area=500000):
     """
     OpenCV fallback — শুধু white regions খুঁজে বের করে।
-    YOLO এর নেই এমন environment এ ব্যবহৃত হয়।
     """
     try:
         gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)

@@ -67,8 +67,8 @@ CORE_PACKAGES = [
     "addict>=2.4.0",
     "easydict>=1.13",
     "pymupdf>=1.27.0",
-    # YOLOv8 for Comic Bubble Detection (ogkalu/comic-speech-bubble-detector-yolov8m)
-    "ultralytics>=8.2.0",
+    # RT-DETR for Comic Bubble Detection (ogkalu/comic-text-and-bubble-detector)
+    # Uses HuggingFace transformers — no extra package needed
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
