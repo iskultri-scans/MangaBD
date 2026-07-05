@@ -2124,7 +2124,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 15988 chars / 431 lines
+**Length:** 22370 chars / 607 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2274,6 +2274,15 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         # Sort by reading order (top-to-bottom, then left-to-right)
         regions.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
 
+        # ─── V11: Comic Bubble Detector ────────────────────────
+        # textline_merge শুধু text lines group করে, কিন্তু এক bubble এর
+        # ভেতরে থাকা সব text একসাথে group করে না। আমরা image থেকে
+        # white bubbles detect করে সেগুলোর ভেতরের সব text merge করি।
+        try:
+            regions = group_regions_by_bubble(image_np, regions)
+        except Exception as bubble_err:
+            log_event(f"Bubble grouping failed: {str(bubble_err)[:50]}", level='WARN')
+
         if return_mask:
             return regions, refined_mask
         return regions
@@ -2320,6 +2329,173 @@ def _compute_quad_angle(pts):
         return float(angle_deg)
     except Exception:
         return 0.0
+
+
+def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
+    """
+    Image থেকে speech bubbles (white regions) detect করো।
+
+    Manga speech bubbles সাধারণত সাদা বা হালকা রঙের হয়।
+    আমরা OpenCV দিয়ে সাদা regions খুঁজে বের করি।
+
+    Args:
+        image_np: BGR image
+        min_area: ছোট থেকে ছোট bubble এর area (px²)
+        max_area: বড় থেকে বড় bubble এর area (px²)
+    Returns:
+        list of (x, y, w, h) — bubble bounding boxes
+    """
+    try:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
+
+        # Threshold: white regions = 255
+        _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+
+        # Morphological operations to clean up
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+
+        # Find contours
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        bubbles = []
+        img_h, img_w = image_np.shape[:2]
+        img_area = img_h * img_w
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < min_area or area > max_area:
+                continue
+            # Filter by aspect ratio — bubbles shouldn't be too thin
+            x, y, w, h = cv2.boundingRect(cnt)
+            if w < 20 or h < 15:
+                continue
+            aspect = w / h
+            if aspect > 8 or aspect < 0.1:
+                continue
+            # Filter out regions that are too large (whole page background)
+            if area > img_area * 0.5:
+                continue
+            bubbles.append((x, y, w, h))
+
+        return bubbles
+    except Exception as e:
+        log_event(f"Bubble detection failed: {str(e)[:50]}", level='WARN')
+        return []
+
+
+def group_regions_by_bubble(image_np, regions, bubbles=None):
+    """
+    Detected text regions গুলোকে bubble অনুযায়ী group করো।
+
+    যদি একাধিক text region এক bubble এর ভেতরে থাকে, তাহলে সেগুলো
+    merge করে একটা region বানাও। এতে এক bubble এর পুরো text একসাথে পড়া যায়।
+
+    Args:
+        image_np: BGR image
+        regions: list of region dicts (from detect_text_regions)
+        bubbles: list of (x, y, w, h) bubble boxes (None হলে auto-detect)
+    Returns:
+        list of merged region dicts
+    """
+    if not regions:
+        return regions
+
+    # Auto-detect bubbles if not provided
+    if bubbles is None:
+        bubbles = detect_speech_bubbles(image_np)
+
+    if not bubbles:
+        return regions
+
+    # For each text region, find which bubble it belongs to (if any)
+    # Use the center of the text region
+    region_bubble_map = {}  # region_idx → bubble_idx
+    used_bubbles = set()
+
+    for r_idx, region in enumerate(regions):
+        x, y, w, h = region['xywh']
+        cx, cy = x + w // 2, y + h // 2
+
+        best_bubble = -1
+        best_overlap = 0
+
+        for b_idx, (bx, by, bw, bh) in enumerate(bubbles):
+            # Check if text center is inside this bubble
+            if bx <= cx <= bx + bw and by <= cy <= by + bh:
+                # Calculate overlap area (text ∩ bubble)
+                ox1 = max(x, bx)
+                oy1 = max(y, by)
+                ox2 = min(x + w, bx + bw)
+                oy2 = min(y + h, by + bh)
+                if ox2 > ox1 and oy2 > oy1:
+                    overlap = (ox2 - ox1) * (oy2 - oy1)
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_bubble = b_idx
+
+        if best_bubble >= 0:
+            region_bubble_map[r_idx] = best_bubble
+            used_bubbles.add(best_bubble)
+
+    # Group regions by bubble
+    bubble_groups = {}  # bubble_idx → list of region_idx
+    for r_idx, b_idx in region_bubble_map.items():
+        if b_idx not in bubble_groups:
+            bubble_groups[b_idx] = []
+        bubble_groups[b_idx].append(r_idx)
+
+    # Build merged regions
+    merged = []
+    merged_indices = set()
+
+    # First, add merged bubble regions
+    for b_idx, r_indices in bubble_groups.items():
+        if len(r_indices) == 1:
+            # Single region in bubble — keep as-is
+            merged.append(regions[r_indices[0]])
+            merged_indices.add(r_indices[0])
+        else:
+            # Multiple regions in one bubble — merge them
+            bx, by, bw, bh = bubbles[b_idx]
+            # Use the bubble's bounding box as the merged region
+            all_pts = [regions[i]['quad'] for i in r_indices]
+            # Combine all corner points
+            combined_pts = np.vstack(all_pts)
+
+            # Calculate average confidence
+            avg_conf = float(np.mean([regions[i]['confidence'] for i in r_indices]))
+
+            # Determine region type (use the most common one)
+            types = [regions[i]['region_type'] for i in r_indices]
+            from collections import Counter
+            most_common_type = Counter(types).most_common(1)[0][0]
+
+            merged.append({
+                'quad': combined_pts.astype(np.int32),
+                'xyxy': (bx, by, bx + bw, by + bh),
+                'xywh': (bx, by, bw, bh),
+                'angle': 0.0,  # bubbles are usually axis-aligned
+                'confidence': avg_conf,
+                'region_type': most_common_type,
+                'merged_from': len(r_indices),
+            })
+            merged_indices.update(r_indices)
+
+    # Add regions that weren't in any bubble (keep as-is)
+    for r_idx, region in enumerate(regions):
+        if r_idx not in merged_indices:
+            merged.append(region)
+
+    # Sort by reading order
+    merged.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
+
+    if len(merged) < len(regions):
+        print(f"    🫧 Bubble grouping: {len(regions)} regions → {len(merged)} bubbles "
+              f"({len(regions) - len(merged)} merged)")
+
+    return merged
 
 
 def crop_region(image_np, region, padding=4):
