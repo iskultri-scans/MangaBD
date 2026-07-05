@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 9569 chars / 271 lines
+**Length:** 9681 chars / 273 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -81,6 +81,8 @@ CORE_PACKAGES = [
     "addict>=2.4.0",
     "easydict>=1.13",
     "pymupdf>=1.27.0",
+    # YOLOv8 for Comic Bubble Detection (ogkalu/comic-speech-bubble-detector-yolov8m)
+    "ultralytics>=8.2.0",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
@@ -2124,7 +2126,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 22370 chars / 607 lines
+**Length:** 24506 chars / 658 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2333,10 +2335,12 @@ def _compute_quad_angle(pts):
 
 def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
     """
-    Image থেকে speech bubbles (white regions) detect করো।
+    Image থেকে speech bubbles detect করো YOLOv8m দিয়ে।
 
-    Manga speech bubbles সাধারণত সাদা বা হালকা রঙের হয়।
-    আমরা OpenCV দিয়ে সাদা regions খুঁজে বের করি।
+    ব্যবহার: ogkalu/comic-speech-bubble-detector-yolov8m
+    8k manga/webtoon/manhua/comic images এ trained।
+    OpenCV-based detection থেকে অনেক ভালো — সব ধরনের bubble
+    (round, rectangular, thought, etc.) চিনতে পারে।
 
     Args:
         image_np: BGR image
@@ -2346,17 +2350,68 @@ def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
         list of (x, y, w, h) — bubble bounding boxes
     """
     try:
+        from ultralytics import YOLO
+        import os
+
+        # Model path on Drive
+        yolo_model_path = f"{CONFIG['models_dir']}/yolo_bubble_detector.pt"
+
+        # Download if not cached
+        if not os.path.exists(yolo_model_path):
+            print(f"    📥 Downloading YOLOv8m bubble detector (~50MB, first time)...")
+            import urllib.request
+            url = "https://huggingface.co/ogkalu/comic-speech-bubble-detector-yolov8m/resolve/main/comic-speech-bubble-detector.pt"
+            urllib.request.urlretrieve(url, yolo_model_path)
+            print(f"    ✅ Downloaded to {yolo_model_path}")
+
+        # Load model (cache the instance)
+        global _yolo_bubble_model
+        if '_yolo_bubble_model' not in globals() or _yolo_bubble_model is None:
+            _yolo_bubble_model = YOLO(yolo_model_path)
+
+        # Run detection
+        # imgsz=1024 (training resolution), conf=0.25 (low threshold to catch all)
+        results = _yolo_bubble_model(image_np, imgsz=1024, conf=0.25, verbose=False)
+
+        bubbles = []
+        img_h, img_w = image_np.shape[:2]
+        img_area = img_h * img_w
+
+        for r in results:
+            if r.boxes is None:
+                continue
+            for box in r.boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                w, h = x2 - x1, y2 - y1
+                area = w * h
+                if area < min_area or area > max_area:
+                    continue
+                if area > img_area * 0.5:
+                    continue
+                bubbles.append((int(x1), int(y1), int(w), int(h)))
+
+        return bubbles
+    except ImportError:
+        # ultralytics not installed — fall back to OpenCV
+        log_event("ultralytics not installed, using OpenCV fallback", level='WARN')
+        return _detect_speech_bubbles_opencv(image_np, min_area, max_area)
+    except Exception as e:
+        log_event(f"Bubble detection failed: {str(e)[:50]}", level='WARN')
+        # Fall back to OpenCV
+        return _detect_speech_bubbles_opencv(image_np, min_area, max_area)
+
+
+def _detect_speech_bubbles_opencv(image_np, min_area=2000, max_area=500000):
+    """
+    OpenCV fallback — শুধু white regions খুঁজে বের করে।
+    YOLO এর নেই এমন environment এ ব্যবহৃত হয়।
+    """
+    try:
         gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
-
-        # Threshold: white regions = 255
         _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
-
-        # Morphological operations to clean up
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-
-        # Find contours
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         bubbles = []
@@ -2367,21 +2422,19 @@ def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
             area = cv2.contourArea(cnt)
             if area < min_area or area > max_area:
                 continue
-            # Filter by aspect ratio — bubbles shouldn't be too thin
             x, y, w, h = cv2.boundingRect(cnt)
             if w < 20 or h < 15:
                 continue
             aspect = w / h
             if aspect > 8 or aspect < 0.1:
                 continue
-            # Filter out regions that are too large (whole page background)
             if area > img_area * 0.5:
                 continue
             bubbles.append((x, y, w, h))
 
         return bubbles
     except Exception as e:
-        log_event(f"Bubble detection failed: {str(e)[:50]}", level='WARN')
+        log_event(f"OpenCV bubble detection failed: {str(e)[:50]}", level='WARN')
         return []
 
 
