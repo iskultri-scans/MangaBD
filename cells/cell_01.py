@@ -228,6 +228,36 @@ for rel_path, content in PATCHES.items():
 print(f"  ✅ Patched {patched_count}/{len(PATCHES)} __init__.py files")
 print()
 
+# ── PyTorch compatibility shim for zyddnys YOLOv5 code ──
+print("─" * 60)
+print("  🔧 PyTorch compatibility shim")
+print("─" * 60)
+
+# zyddnys এর CTD/YOLOv5 code পুরোনো PyTorch এর জন্য লেখা।
+# PyTorch 2.11+ এ torch._utils আর public API তে নেই, কিছু internal
+# function (যেমন _rebuild_tensor) সরিয়ে দেওয়া হয়েছে।
+# এখানে সেগুলো inject করছি যাতে import কাজ করে।
+import torch as _torch
+import torch.nn as _nn
+
+# Add torch._utils compatibility (used by old YOLOv5 checkpoint loading)
+if not hasattr(_torch, '_utils'):
+    import types
+    _torch._utils = types.ModuleType('torch._utils')
+    # Add common functions that old code expects
+    if hasattr(_torch, '_rebuild_tensor'):
+        _torch._utils._rebuild_tensor = _torch._rebuild_tensor
+    if hasattr(_torch, '_rebuild_parameter'):
+        _torch._utils._rebuild_parameter = _torch._rebuild_parameter
+    # Fallback no-op for missing functions
+    _torch._utils._rebuild_tensor_v2 = getattr(_torch, '_rebuild_tensor_v2',
+        lambda *args, **kwargs: None)
+    print(f"  ✅ Added torch._utils shim (PyTorch {_torch.__version__})")
+else:
+    print(f"  ℹ️ torch._utils already available (PyTorch {_torch.__version__})")
+
+print()
+
 # ── Verify imports work ────────────────────────────────
 print("─" * 60)
 print("  🧪 Verifying critical imports")
