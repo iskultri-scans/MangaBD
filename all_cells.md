@@ -3,13 +3,13 @@
 ---
 
 ## 📋 Table of Contents
-1. [Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)](#cell-01)2. [Cell 02 — 🔧 CELL 2 — Import, Config & Global Setup (V11)](#cell-02)3. [Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)](#cell-03)4. [Cell 04 — 💾 CELL 4 — Checkpoint System (V11, from V1)](#cell-04)5. [Cell 05 — 🔍 CELL 5 — Region Classification (V11, from V1)](#cell-05)6. [Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)](#cell-06)7. [Cell 07 — 📖 CELL 7 — OCR Engine (V11: Baidu + Qwen VL)](#cell-07)8. [Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)](#cell-08)9. [Cell 09 — ✍️ CELL 9 — Bengali Text Renderer (V11: Pillow + libraqm)](#cell-09)10. [Cell 10 — 📤 CELL 10 — Input (V11, from V1)](#cell-10)11. [Cell 11 — 🔍 CELL 11 — Detection + OCR + Verification (V11)](#cell-11)12. [Cell 12 — 💾 CELL 12 — Export (V11: ai.Text only)](#cell-12)13. [Cell 13 — 📤 CELL 13 — Translation (V11: Manual + Gemini + ChatGPT + NLLB)](#cell-13)14. [Cell 14 — ✂️ CELL 14 — Full Page Inpainting (V11: LaMa Large)](#cell-14)15. [Cell 15 — ✍️ CELL 15 — Bengali Text Rendering (V11: Pillow + libraqm)](#cell-15)16. [Cell 16 — 🔬 CELL 16 — Quality Inspector (V11, from V1)](#cell-16)17. [Cell 17 — 🔧 CELL 17 — Manual Fix (V11, from V1)](#cell-17)18. [Cell 18 — 🖼️ CELL 18 — Preview & Download (V11, from V1)](#cell-18)19. [Cell 19 — 📋 CELL 19 — Session Log (V11, modified for new OCR/translator engines)](#cell-19)20. [Cell 20 — 🎨 CELL 20 — Dashboard (V11 NEW: HTML/CSS/JS)](#cell-20)
+1. [Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)](#cell-01)2. [Cell 02 — 🔧 CELL 2 — Import, Config & Global Setup (V11)](#cell-02)3. [Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Qwen VL + LaMa Large)](#cell-03)4. [Cell 04 — 💾 CELL 4 — Checkpoint System (V11, from V1)](#cell-04)5. [Cell 05 — 🔍 CELL 5 — Region Classification (V11, from V1)](#cell-05)6. [Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)](#cell-06)7. [Cell 07 — 📖 CELL 7 — OCR Engine (V11: Baidu + Qwen VL)](#cell-07)8. [Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)](#cell-08)9. [Cell 09 — ✍️ CELL 9 — Bengali Text Renderer (V11: Pillow + libraqm)](#cell-09)10. [Cell 10 — 📤 CELL 10 — Input (V11, from V1)](#cell-10)11. [Cell 11 — 🔍 CELL 11 — Detection + OCR + Verification (V11)](#cell-11)12. [Cell 12 — 💾 CELL 12 — Export (V11: ai.Text only)](#cell-12)13. [Cell 13 — 📤 CELL 13 — Translation (V11: Manual + Gemini + ChatGPT + NLLB)](#cell-13)14. [Cell 14 — ✂️ CELL 14 — Full Page Inpainting (V11: LaMa Large)](#cell-14)15. [Cell 15 — ✍️ CELL 15 — Bengali Text Rendering (V11: Pillow + libraqm)](#cell-15)16. [Cell 16 — 🔬 CELL 16 — Quality Inspector (V11, from V1)](#cell-16)17. [Cell 17 — 🔧 CELL 17 — Manual Fix (V11, from V1)](#cell-17)18. [Cell 18 — 🖼️ CELL 18 — Preview & Download (V11, from V1)](#cell-18)19. [Cell 19 — 📋 CELL 19 — Session Log (V11, modified for new OCR/translator engines)](#cell-19)20. [Cell 20 — 🎨 CELL 20 — Dashboard (V11 NEW: HTML/CSS/JS)](#cell-20)
 ---
 
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 13279 chars / 364 lines
+**Length:** 13160 chars / 361 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -59,9 +59,9 @@ CORE_PACKAGES = [
     "Pillow>=10.0.0",            # libraqm support থাকে Colab-এ
     "opencv-python-headless>=4.8.0",
     # ML / transformers
-    # NOTE: Baidu Unlimited-OCR এর documentation বলছে transformers==4.57.1
-    # দরকার। আমরা সেটাই pin করছি যাতে Baidu এর custom code ঠিকভাবে চলে।
-    "transformers==4.57.1",
+    # Qwen 2.5 VL works with most recent transformers versions
+    # (Baidu removed — no longer need 4.57.1 pin)
+    "transformers>=4.45.0",
     "huggingface_hub>=0.20.0",
     "accelerate>=0.25.0",
     "bitsandbytes>=0.41.0",
@@ -76,11 +76,8 @@ CORE_PACKAGES = [
     "pyclipper>=1.3.0",
     "networkx>=3.0",
     "scikit-image>=0.21.0",
-    # Baidu OCR deps (needed by baidu/Unlimited-OCR trust_remote_code)
-    # Official requirements from https://huggingface.co/baidu/Unlimited-OCR
-    "addict>=2.4.0",
-    "easydict>=1.13",
-    "pymupdf>=1.27.0",
+    # Baidu OCR removed — too many compatibility issues
+    # Qwen VL (PRIMARY OCR) only needs transformers (already installed)
     # RT-DETR for Comic Bubble Detection (ogkalu/comic-text-and-bubble-detector)
     # Uses HuggingFace transformers — no extra package needed
     # Rendering helpers
@@ -834,19 +831,18 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 ---
 
 <a id='cell-03'></a>
-## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
+## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 30259 chars / 704 lines
+**Length:** 16595 chars / 418 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
-# 🤖 CELL 3 — Model Loading (V11: CTD + Baidu OCR + Qwen VL + LaMa Large)
+# 🤖 CELL 3 — Model Loading (V11: CTD + Qwen VL + LaMa Large)
 # ═══════════════════════════════════════════════════════════
-# এই cell 4টি model load করবে:
+# এই cell ৩টি model load করবে:
 #   1. CTD (Comic Text Detector)         — text detection
-#   2. Baidu/Unlimited-OCR                — primary OCR
-#   3. Qwen/Qwen2.5-VL-3B-Instruct        — backup OCR
-#   4. LaMa Large (LamaLargeInpainter)    — text removal
+#   2. Qwen/Qwen2.5-VL-3B-Instruct        — PRIMARY OCR
+#   3. LaMa Large (LamaLargeInpainter)    — text removal
 # প্রথমবার চালালে ~3GB download হবে Google Drive-এ।
 # পরের বার <60 sec-এ load হবে।
 # ═══════════════════════════════════════════════════════════
@@ -916,7 +912,7 @@ def download_file(url, dest, label=""):
 # MODEL 1: CTD (Comic Text Detector)
 # ═══════════════════════════════════════════════════════════
 print("─" * 60)
-print("  🔍 Model 1/4: CTD (Comic Text Detector)")
+print("  🔍 Model 1/3: CTD (Comic Text Detector)")
 print("─" * 60)
 
 # Ensure model directory exists and download weight
@@ -976,101 +972,66 @@ except Exception as e:
 print()
 
 # ═══════════════════════════════════════════════════════════
-# MODEL 2: Baidu/Unlimited-OCR (Primary OCR)
+# MODEL 2: Qwen 2.5 VL 3B (PRIMARY OCR)
 # ═══════════════════════════════════════════════════════════
+# Baidu Unlimited-OCR removed — too many compatibility issues:
+# - transformers 4.57.1 required (conflicts with other deps)
+# - torch._utils._rebuild_parameter missing in PyTorch 2.11
+# - LaTeX format output needs complex parsing
+# - 6.7GB download (too large)
+# Qwen VL is more reliable, smaller (3B), and gives clean text output.
 print("─" * 60)
-print("  📖 Model 2/4: Baidu Unlimited OCR (Primary)")
+print("  📖 Model 2/3: Qwen 2.5 VL 3B Instruct (PRIMARY OCR)")
 print("─" * 60)
 
-baidu_load_start = time.time()
-baidu_ocr = None
+qwen_load_start = time.time()
+qwen_vl_ocr = None
+baidu_ocr = None  # Set to None for compatibility — Qwen is primary
 try:
-    # ─── Baidu OCR: Official API from HuggingFace ───────────────
-    # Source: https://huggingface.co/baidu/Unlimited-OCR
-    # Requirements: transformers==4.57.1, addict, easydict, pymupdf
-    # Uses: torch.bfloat16 (NOT float16), use_safetensors=True
-    # API: model.infer(tokenizer, prompt, image_file, output_path, ...)
-    # ─────────────────────────────────────────────────────────────
+    from transformers import AutoProcessor
+    # Try Qwen2.5-VL first (newer), fall back to Qwen2-VL
+    try:
+        from transformers import Qwen2_5_VLForConditionalGeneration as QwenModel
+        print(f"  ℹ️ Using Qwen2_5_VLForConditionalGeneration")
+    except ImportError:
+        from transformers import Qwen2VLForConditionalGeneration as QwenModel
+        print(f"  ℹ️ Using Qwen2VLForConditionalGeneration (2.5 not available)")
 
-    # Install deps inline (safety net if Cell 1 not run)
-    import subprocess
-    for pkg in ['addict', 'easydict', 'pymupdf']:
-        try:
-            __import__(pkg if pkg != 'pymupdf' else 'fitz')
-        except ImportError:
-            subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', pkg],
-                          check=False)
-    print(f"  ✅ Baidu deps available (addict, easydict, pymupdf)")
+    QWEN_MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
 
-    # ─── transformers version check ─────────────────────────────
-    # Baidu Unlimited-OCR requires transformers==4.57.1 (per official docs).
-    # Cell 1 pins this version. If user is on older/newer version, warn them.
-    import transformers
-    tf_ver = tuple(int(x) for x in transformers.__version__.split('.')[:3])
-    if tf_ver < (4, 50, 0):
-        print(f"  ⚠️ transformers {transformers.__version__} — Baidu needs 4.57.1")
-        print(f"     Run: !pip install -q transformers==4.57.1")
-    elif tf_ver != (4, 57, 1):
-        print(f"  ℹ️ transformers {transformers.__version__} (Baidu recommends 4.57.1)")
+    print(f"  📥 Loading {QWEN_MODEL_ID}...")
+    print(f"     (using device_map='auto' to avoid OOM during .to(DEVICE))")
 
-    from transformers import AutoModel, AutoTokenizer
-    import tempfile
+    qwen_vl_model = QwenModel.from_pretrained(
+        QWEN_MODEL_ID,
+        cache_dir=qwen_cache_dir,
+        torch_dtype=DEVICE_TORCH_DTYPE,
+        trust_remote_code=True,
+        low_cpu_mem_usage=True,
+        device_map='auto' if DEVICE == 'cuda' else None,
+    )
+    qwen_vl_model.eval()
+    print(f"  ✅ Qwen model loaded to device(s): "
+          f"{set(p.device for p in qwen_vl_model.parameters())}")
 
-    BAIDU_MODEL_ID = 'baidu/Unlimited-OCR'
-
-    print(f"  📥 Loading {BAIDU_MODEL_ID}...")
-    print(f"     (first time ~6.7GB download to Drive, later cached)")
-    print(f"     Using OFFICIAL API: torch.bfloat16 + use_safetensors + model.infer()")
-
-    baidu_tokenizer = AutoTokenizer.from_pretrained(
-        BAIDU_MODEL_ID,
-        cache_dir=baidu_cache_dir,
+    qwen_vl_processor = AutoProcessor.from_pretrained(
+        QWEN_MODEL_ID,
+        cache_dir=qwen_cache_dir,
         trust_remote_code=True,
     )
 
-    # ─── OFFICIAL LOADING (from HuggingFace page) ───────────────
-    # Key differences from before:
-    #   - torch_dtype=torch.bfloat16 (NOT float16 — bfloat16 is required)
-    #   - use_safetensors=True (loads .safetensors, not .bin)
-    #   - NO device_map='auto' (official code uses .cuda() after load)
-    #   - NO low_cpu_mem_usage (can break custom code)
-    baidu_model = AutoModel.from_pretrained(
-        BAIDU_MODEL_ID,
-        cache_dir=baidu_cache_dir,
-        trust_remote_code=True,
-        use_safetensors=True,
-        torch_dtype=torch.bfloat16,
-    )
-    baidu_model = baidu_model.eval()
-    if DEVICE == 'cuda':
-        baidu_model = baidu_model.cuda()
-    print(f"  ✅ Baidu model loaded on {DEVICE} (bfloat16)")
-
-    # Verify model has .infer() method (official API)
-    if not hasattr(baidu_model, 'infer'):
-        print(f"  ⚠️ Model doesn't have .infer() method — Baidu may not work")
-        raise AttributeError("model.infer() not found")
-
-    class BaiduOCRWrapper:
-        """Wrapper around Baidu Unlimited OCR using official .infer() API."""
-        def __init__(self, model, tokenizer, device):
+    class QwenVLOCRWrapper:
+        """Wrapper around Qwen 2.5 VL for OCR."""
+        def __init__(self, model, processor, device):
             self.model = model
-            self.tokenizer = tokenizer
+            self.processor = processor
             self.device = device
-            # Temp directory for image files (infer() takes file paths)
-            self._temp_dir = tempfile.mkdtemp(prefix='baidu_ocr_')
 
         @torch.no_grad()
         def recognize(self, image_np):
-            """
-            Recognize text from cropped RGB image.
-            Uses official model.infer() API — saves image to temp file,
-            runs inference, reads result.
-            Returns: (text, confidence)
-            """
+            """Recognize text. Returns (text, confidence)."""
             try:
-                # Clear CUDA cache before inference — Baidu + Qwen দুটোই
-                # GPU তে আছে, তাই inference এর আগে cache clear দরকার।
+                # Clear CUDA cache before inference
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
@@ -1079,309 +1040,73 @@ try:
                 else:
                     pil_img = image_np
 
-                # Save PIL image to temp file (infer() needs file path)
-                import uuid
-                temp_img_path = os.path.join(self._temp_dir, f"img_{uuid.uuid4().hex[:8]}.jpg")
-                pil_img.save(temp_img_path, format='JPEG', quality=95)
-
-                # Output directory for results
-                output_dir = os.path.join(self._temp_dir, f"out_{uuid.uuid4().hex[:8]}")
-                os.makedirs(output_dir, exist_ok=True)
-
-                # ─── Official .infer() call ───────────────────────
-                # From HuggingFace: model.infer(tokenizer, prompt, image_file, output_path, ...)
-                # prompt: '<image>document parsing.' for single image
-                # base_size=1024, image_size=640, crop_mode=True (gundam config)
-                result = self.model.infer(
-                    self.tokenizer,
-                    prompt='<image>document parsing.',
-                    image_file=temp_img_path,
-                    output_path=output_dir,
-                    base_size=1024,
-                    image_size=640,
-                    crop_mode=True,
-                    max_length=32768,
-                    no_repeat_ngram_size=35,
-                    ngram_window=128,
-                    save_results=True,  # save to file — we'll read it
+                prompt_text = (
+                    "Extract all text visible in this image exactly as written. "
+                    "Return only the raw text content, nothing else. "
+                    "If there is no readable text, return empty string."
                 )
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "image": pil_img},
+                            {"type": "text", "text": prompt_text},
+                        ],
+                    }
+                ]
 
-                # DEBUG: print what we got
-                import sys as _sys
-                print(f"      [DEBUG] result type: {type(result).__name__}", file=_sys.stderr)
-                if result is not None:
-                    print(f"      [DEBUG] result preview: {str(result)[:200]}", file=_sys.stderr)
-
-                # Also check what files were saved in output_dir
-                saved_files = []
-                if os.path.exists(output_dir):
-                    saved_files = os.listdir(output_dir)
-                print(f"      [DEBUG] saved files: {saved_files}", file=_sys.stderr)
-
-                # Parse result — Baidu returns string with <|det|> tags
-                # Format: <|det|>title [x1,y1,x2,y2]<|/det|>ACTUAL TEXT
-                #         <|det|>text [x1,y1,x2,y2]<|/det|>MORE TEXT
-                # We need to extract the text AFTER <|/det|> tags
-                import re
-                text = ''
-                raw = ''
-                # Try to get text from result first
-                if isinstance(result, str) and result.strip():
-                    raw = result
-                elif isinstance(result, dict):
-                    raw = result.get('text', result.get('result', ''))
-                elif isinstance(result, (list, tuple)) and len(result) > 0:
-                    raw = str(result[0]) if not isinstance(result[0], dict) else \
-                          result[0].get('text', str(result[0]))
-
-                # If result is empty/None, read from saved files
-                if not raw or not str(raw).strip():
-                    if os.path.exists(output_dir):
-                        for fname in os.listdir(output_dir):
-                            fpath = os.path.join(output_dir, fname)
-                            if fname.endswith('.txt') or fname.endswith('.md') or fname.endswith('.json'):
-                                try:
-                                    with open(fpath) as f:
-                                        content = f.read()
-                                    if content.strip():
-                                        raw = content
-                                        print(f"      [DEBUG] read from {fname}: {content[:100]}", file=_sys.stderr)
-                                        break
-                                except Exception:
-                                    pass
-
-                print(f"      [DEBUG] raw text length: {len(str(raw))}", file=_sys.stderr)
-
-                # ─── Parse Baidu's <|det|> format ──────────────────
-                # Find all text segments after <|/det|> tags
-                # Pattern: <|/det|>TEXT (until next <|det|> or end)
-                if raw and '<|' in raw:
-                    # Extract text after each <|/det|> tag
-                    segments = re.findall(r'<\|/det\|>(.*?)(?=<\|det\|>|$)', raw, re.DOTALL)
-                    if segments:
-                        # Join all segments with newlines, clean each
-                        cleaned_segments = []
-                        for seg in segments:
-                            seg = seg.strip()
-                            # Remove coordinate-like artifacts: [123, 456, 789, 012]
-                            seg = re.sub(r'\[\d+,\s*\d+,\s*\d+,\s*\d+\]', '', seg)
-                            seg = seg.strip()
-                            if seg:
-                                cleaned_segments.append(seg)
-                        text = '\n'.join(cleaned_segments)
-                    else:
-                        # No tags found — use raw but strip tags
-                        text = re.sub(r'<\|[^|]*\|>', '', raw).strip()
-                else:
-                    text = raw.strip() if raw else ''
-
-                # Cleanup temp files
+                chat_text = self.processor.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+                inputs = self.processor(
+                    text=chat_text, images=[pil_img],
+                    return_tensors='pt', padding=True,
+                )
                 try:
-                    os.remove(temp_img_path)
-                    import shutil
-                    shutil.rmtree(output_dir, ignore_errors=True)
+                    model_device = next(self.model.parameters()).device
                 except Exception:
-                    pass
-
-                # Final cleanup — remove markdown artifacts
-                text = text.strip()
-                text = re.sub(r'^```+\w*\n?', '', text)
-                text = re.sub(r'\n?```+$', '', text)
-
-                # ─── Extract text from LaTeX/equation format ──────
-                # Baidu কখনো equation গুলো LaTeX হিসেবে return করে:
-                #   \[\left| \begin{array}{c} \text {I'M SURE} \\ \text {I HAVE ONE} \end{array} \right|\]
-                # আমরা \text{...} এর ভেতরের text extract করব
-                if r'\text{' in text:
-                    # Find all \text{...} content
-                    text_parts = re.findall(r'\\text\s*\{([^}]*)\}', text)
-                    if text_parts:
-                        text = ' '.join(text_parts)
-
-                # Remove leftover LaTeX/math artifacts (but keep text)
-                # Only remove if there are no \text{} tags (already extracted above)
-                if r'\text{' not in text:
-                    text = re.sub(r'\\\([^\)]*\)', '', text)  # \( ... \)
-                    text = re.sub(r'\\\[[^\]]*\]', '', text)  # \[ ... \)
-
-                # Remove array/matrix LaTeX commands
-                text = re.sub(r'\\(left|right|begin|end|array|matrix)\{[^}]*\}', '', text)
-                text = re.sub(r'\\(left|right)\|', '', text)
-
-                # Normalize whitespace (newlines → spaces)
-                text = re.sub(r'\s+', ' ', text)
-                text = text.strip()
-
-                confidence = 0.85 if len(text) > 0 else 0.0
+                    model_device = self.device
+                inputs = {
+                    k: (v.to(model_device).to(DEVICE_TORCH_DTYPE)
+                        if v.dtype.is_floating_point else v.to(model_device))
+                    for k, v in inputs.items() if isinstance(v, torch.Tensor)
+                }
+                output_ids = self.model.generate(**inputs, max_new_tokens=256)
+                generated = output_ids[:, inputs['input_ids'].shape[1]:]
+                text = self.processor.batch_decode(
+                    generated, skip_special_tokens=True
+                )[0].strip()
+                confidence = 0.80 if len(text) > 0 else 0.0
                 return text, confidence
             except Exception as e:
                 return f'[OCR_FAILED: {str(e)[:30]}]', 0.0
 
-    baidu_ocr = BaiduOCRWrapper(baidu_model, baidu_tokenizer, DEVICE)
-    baidu_load_time = time.time() - baidu_load_start
-    print(f"  ✅ Baidu OCR loaded in {baidu_load_time:.1f}s on {DEVICE}")
-    print(f"  📍 Using official model.infer() API")
-    models_loaded['baidu'] = True
+    qwen_vl_ocr = QwenVLOCRWrapper(qwen_vl_model, qwen_vl_processor, DEVICE)
+    qwen_load_time = time.time() - qwen_load_start
+    print(f"  ✅ Qwen VL loaded in {qwen_load_time:.1f}s on {DEVICE}")
+    print(f"  📍 Qwen is the PRIMARY (and only) OCR engine")
+    models_loaded['qwen'] = True
+    # Set Qwen as primary OCR engine
+    CONFIG['ocr_engine'] = 'qwen'
 except Exception as e:
-    baidu_load_time = time.time() - baidu_load_start
+    qwen_load_time = time.time() - qwen_load_start
     import traceback
-    print(f"  ❌ Baidu OCR load failed ({baidu_load_time:.1f}s): {str(e)[:150]}")
+    print(f"  ❌ Qwen VL load failed ({qwen_load_time:.1f}s): {str(e)[:150]}")
     print(f"  📍 Last 3 traceback lines:")
     for line in traceback.format_exc().split('\n')[-5:-1]:
         if line.strip():
             print(f"     {line}")
-    print(f"  ⚠️ Baidu fallback: Qwen VL primary হবে")
-    print(f"  💡 যদি Baidu এর আরো compatibility issue হয়, চিন্তা করো না —")
-    print(f"     Qwen VL দিয়েই সব OCR চলবে, Baidu ছাড়াও workflow complete হবে।")
-    models_loaded['baidu'] = False
-    baidu_ocr = None
-    # Auto-switch to Qwen as primary if Baidu fails AND Qwen is available
-    if CONFIG.get('ocr_engine', 'baidu') == 'baidu':
-        CONFIG['ocr_engine'] = 'qwen'
-        print(f"  🔄 Auto-switched CONFIG['ocr_engine'] = 'qwen' (Baidu unavailable)")
-
-print()
-
-# ═══════════════════════════════════════════════════════════
-# MODEL 3: Qwen 2.5 VL 3B (Backup OCR) — OPTIONAL
-# ═══════════════════════════════════════════════════════════
-# Default: SKIP (Baidu দিয়েই fast + accurate output পাওয়া যাচ্ছে)
-# Qwen লোড করলে ~6GB GPU memory বাড়ে, যা Baidu inference এ OOM করতে পারে।
-# চাইলে CONFIG['enable_qwen_vl'] = True করে enable করতে পারো।
-print("─" * 60)
-print("  📖 Model 3/4: Qwen 2.5 VL 3B Instruct (Backup OCR)")
-print("─" * 60)
-
-qwen_load_start = time.time()
-qwen_vl_ocr = None
-
-# Check if Qwen is enabled (default: False — Baidu is enough)
-_qwen_enabled = CONFIG.get('enable_qwen_vl', False)
-
-if not _qwen_enabled:
-    print(f"  ⏭️  Qwen VL skipped (CONFIG['enable_qwen_vl'] = False)")
-    print(f"  💡 Baidu দিয়েই fast + accurate OCR হবে — Qwen এর দরকার নেই")
-    print(f"  💡 চাইলে Cell 2-তে CONFIG['enable_qwen_vl'] = True করে enable করতে পারো")
+    print(f"  ⚠️ No OCR engine available — workflow cannot proceed")
     models_loaded['qwen'] = False
     qwen_vl_ocr = None
-    # Ensure Baidu is primary if it's available
-    if baidu_ocr is not None:
-        CONFIG['ocr_engine'] = 'baidu'
-        print(f"  ✅ OCR engine: baidu (primary, only)")
-else:
-    try:
-        from transformers import AutoProcessor
-        # Try Qwen2.5-VL first (newer), fall back to Qwen2-VL
-        try:
-            from transformers import Qwen2_5_VLForConditionalGeneration as QwenModel
-            print(f"  ℹ️ Using Qwen2_5_VLForConditionalGeneration")
-        except ImportError:
-            from transformers import Qwen2VLForConditionalGeneration as QwenModel
-            print(f"  ℹ️ Using Qwen2VLForConditionalGeneration (2.5 not available)")
-
-        QWEN_MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
-
-        print(f"  📥 Loading {QWEN_MODEL_ID}...")
-        print(f"     (using device_map='auto' to avoid OOM during .to(DEVICE))")
-
-        qwen_vl_model = QwenModel.from_pretrained(
-            QWEN_MODEL_ID,
-            cache_dir=qwen_cache_dir,
-            torch_dtype=DEVICE_TORCH_DTYPE,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True,
-            device_map='auto' if DEVICE == 'cuda' else None,
-        )
-        qwen_vl_model.eval()
-        print(f"  ✅ Qwen model loaded to device(s): "
-              f"{set(p.device for p in qwen_vl_model.parameters())}")
-
-        qwen_vl_processor = AutoProcessor.from_pretrained(
-            QWEN_MODEL_ID,
-            cache_dir=qwen_cache_dir,
-            trust_remote_code=True,
-        )
-
-        class QwenVLOCRWrapper:
-            """Wrapper around Qwen 2.5 VL for OCR."""
-            def __init__(self, model, processor, device):
-                self.model = model
-                self.processor = processor
-                self.device = device
-
-            @torch.no_grad()
-            def recognize(self, image_np):
-                """Recognize text. Returns (text, confidence)."""
-                try:
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    if isinstance(image_np, np.ndarray):
-                        pil_img = Image.fromarray(image_np.astype(np.uint8))
-                    else:
-                        pil_img = image_np
-                    prompt_text = (
-                        "Extract all text visible in this image exactly as written. "
-                        "Return only the raw text content, nothing else. "
-                        "If there is no readable text, return empty string."
-                    )
-                    messages = [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "image", "image": pil_img},
-                                {"type": "text", "text": prompt_text},
-                            ],
-                        }
-                    ]
-                    chat_text = self.processor.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
-                    )
-                    inputs = self.processor(
-                        text=chat_text, images=[pil_img],
-                        return_tensors='pt', padding=True,
-                    )
-                    try:
-                        model_device = next(self.model.parameters()).device
-                    except Exception:
-                        model_device = self.device
-                    inputs = {
-                        k: (v.to(model_device).to(DEVICE_TORCH_DTYPE)
-                            if v.dtype.is_floating_point else v.to(model_device))
-                        for k, v in inputs.items() if isinstance(v, torch.Tensor)
-                    }
-                    output_ids = self.model.generate(**inputs, max_new_tokens=256)
-                    generated = output_ids[:, inputs['input_ids'].shape[1]:]
-                    text = self.processor.batch_decode(
-                        generated, skip_special_tokens=True
-                    )[0].strip()
-                    confidence = 0.80 if len(text) > 0 else 0.0
-                    return text, confidence
-                except Exception as e:
-                    return f'[OCR_FAILED: {str(e)[:30]}]', 0.0
-
-        qwen_vl_ocr = QwenVLOCRWrapper(qwen_vl_model, qwen_vl_processor, DEVICE)
-        qwen_load_time = time.time() - qwen_load_start
-        print(f"  ✅ Qwen VL loaded in {qwen_load_time:.1f}s on {DEVICE}")
-        models_loaded['qwen'] = True
-    except Exception as e:
-        qwen_load_time = time.time() - qwen_load_start
-        import traceback
-        print(f"  ❌ Qwen VL load failed ({qwen_load_time:.1f}s): {str(e)[:150]}")
-        print(f"  📍 Last 3 traceback lines:")
-        for line in traceback.format_exc().split('\n')[-5:-1]:
-            if line.strip():
-                print(f"     {line}")
-        print(f"  ⚠️ Qwen fallback: শুধু Baidu থাকবে (backup থাকবে না)")
-        models_loaded['qwen'] = False
-        qwen_vl_ocr = None
 
 print()
 
 # ═══════════════════════════════════════════════════════════
-# MODEL 4: LaMa Large (LamaLargeInpainter)
+# MODEL 3: LaMa Large (LamaLargeInpainter)
 # ═══════════════════════════════════════════════════════════
 print("─" * 60)
-print("  ✂️ Model 4/4: LaMa Large (Inpainting)")
+print("  ✂️ Model 3/3: LaMa Large (Inpainting)")
 print("─" * 60)
 
 # Download weight if missing
@@ -1478,21 +1203,7 @@ if ctd_detector is not None:
 else:
     print("  ⚠️ CTD not loaded — skip test")
 
-# Test 2: Baidu OCR
-if baidu_ocr is not None:
-    try:
-        test_img = np.ones((60, 200, 3), dtype=np.uint8) * 255
-        cv2.putText(test_img, "Hello", (10, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                    1.2, (0, 0, 0), 2)
-        test_rgb = cv2.cvtColor(test_img, cv2.COLOR_BGR2RGB)
-        text, conf = baidu_ocr.recognize(test_rgb)
-        print(f"  ✅ Baidu OCR: '{text[:30]}' (conf={conf:.2f})")
-    except Exception as e:
-        print(f"  ⚠️ Baidu OCR test: {str(e)[:80]}")
-else:
-    print("  ⚠️ Baidu OCR not loaded — skip test")
-
-# Test 3: Qwen VL OCR
+# Test 2: Qwen VL OCR
 if qwen_vl_ocr is not None:
     try:
         test_img = np.ones((60, 200, 3), dtype=np.uint8) * 255
@@ -1506,7 +1217,7 @@ if qwen_vl_ocr is not None:
 else:
     print("  ⚠️ Qwen VL not loaded — skip test")
 
-# Test 4: LaMa inpainting
+# Test 3: LaMa inpainting
 if lama_inpainter is not None:
     try:
         test_img = np.ones((256, 256, 3), dtype=np.uint8) * 255
