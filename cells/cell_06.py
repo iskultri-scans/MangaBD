@@ -46,15 +46,15 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         # CTD detect (async — _run_async helper দিয়ে চালাই)
         textlines, raw_mask, refined_mask = _run_async(detector.detect(
             image_np,
-            detect_size=CONFIG['detection_size'],
-            text_threshold=CONFIG['text_threshold'],
-            box_threshold=CONFIG['box_threshold'],
-            unclip_ratio=CONFIG['unclip_ratio'],
-            invert=False,
-            gamma_correct=False,
-            rotate=False,
-            auto_rotate=True,    # V11: auto-rotate for tilted pages
-            verbose=False,
+            CONFIG['detection_size'],
+            CONFIG['text_threshold'],
+            CONFIG['box_threshold'],
+            CONFIG['unclip_ratio'],
+            False,  # invert
+            False,  # gamma_correct
+            False,  # rotate
+            True,   # auto_rotate (V11: for tilted pages)
+            False,  # verbose
         ))
 
         # ─── V11: textline_merge — group lines into bubbles ───────

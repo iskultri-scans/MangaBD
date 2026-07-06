@@ -116,10 +116,10 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         try:
             from manga_translator.inpainting.common import InpainterConfig
             cfg = InpainterConfig()
+            # Use positional args to avoid keyword conflicts with InpainterConfig fields
+            # Signature: inpaint(image, mask, config, inpainting_size=1024, verbose=False)
             result = _run_async(lama_inpainter.inpaint(
-                image_np, dilated, cfg,
-                inpainting_size=inpainting_size,
-                verbose=False,
+                image_np, dilated, cfg, inpainting_size, False,
             ))
             if result is not None and result.size > 0:
                 # Ensure same size as input
@@ -177,14 +177,21 @@ def inpaint_full_page(image_np, regions, detector=None):
         detector = ctd_detector
     if detector is not None:
         try:
+            # Use positional args to avoid keyword conflicts
+            # Signature: detect(image, detect_size, text_threshold, box_threshold,
+            #                   unclip_ratio, invert, gamma_correct, rotate,
+            #                   auto_rotate=False, verbose=False)
             _, _, ctd_mask = _run_async(detector.detect(
                 image_np,
-                detect_size=CONFIG['detection_size'],
-                text_threshold=CONFIG['text_threshold'],
-                box_threshold=CONFIG['box_threshold'],
-                unclip_ratio=CONFIG['unclip_ratio'],
-                invert=False, gamma_correct=False, rotate=False,
-                auto_rotate=False, verbose=False,
+                CONFIG['detection_size'],
+                CONFIG['text_threshold'],
+                CONFIG['box_threshold'],
+                CONFIG['unclip_ratio'],
+                False,  # invert
+                False,  # gamma_correct
+                False,  # rotate
+                False,  # auto_rotate
+                False,  # verbose
             ))
             if ctd_mask is not None and ctd_mask.size > 0:
                 if ctd_mask.shape[:2] != (h, w):

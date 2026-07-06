@@ -833,7 +833,7 @@ log_event(f"Cell 2 complete: {tests_pass}/{tests_total} tests passed")
 <a id='cell-03'></a>
 ## 🧩 Cell 03 — 🤖 CELL 3 — Model Loading (V11: CTD + Qwen VL + LaMa Large)
 **Source file:** `cell_03_models.py`
-**Length:** 16595 chars / 418 lines
+**Length:** 16556 chars / 420 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -1190,12 +1190,15 @@ if ctd_detector is not None:
                     2, (0, 0, 0), 4)
         textlines, raw_mask, mask = _run_async(ctd_detector.detect(
             test_img,
-            detect_size=CONFIG['detection_size'],
-            text_threshold=CONFIG['text_threshold'],
-            box_threshold=CONFIG['box_threshold'],
-            unclip_ratio=CONFIG['unclip_ratio'],
-            invert=False, gamma_correct=False, rotate=False,
-            auto_rotate=False, verbose=False,
+            CONFIG['detection_size'],
+            CONFIG['text_threshold'],
+            CONFIG['box_threshold'],
+            CONFIG['unclip_ratio'],
+            False,  # invert
+            False,  # gamma_correct
+            False,  # rotate
+            False,  # auto_rotate
+            False,  # verbose
         ))
         print(f"  ✅ CTD: detected {len(textlines)} regions on test image")
     except Exception as e:
@@ -1227,8 +1230,7 @@ if lama_inpainter is not None:
         from manga_translator.inpainting.common import InpainterConfig
         cfg = InpainterConfig()
         result = _run_async(lama_inpainter.inpaint(
-            test_img, mask, cfg, inpainting_size=256,
-            verbose=False,
+            test_img, mask, cfg, 256, False,
         ))
         if result is not None and result.size > 0:
             center_val = int(np.mean(result[120:140, 120:140]))
@@ -1928,7 +1930,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: CTD inline)
 **Source file:** `cell_06_detection.py`
-**Length:** 25138 chars / 675 lines
+**Length:** 25085 chars / 675 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -1979,15 +1981,15 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         # CTD detect (async — _run_async helper দিয়ে চালাই)
         textlines, raw_mask, refined_mask = _run_async(detector.detect(
             image_np,
-            detect_size=CONFIG['detection_size'],
-            text_threshold=CONFIG['text_threshold'],
-            box_threshold=CONFIG['box_threshold'],
-            unclip_ratio=CONFIG['unclip_ratio'],
-            invert=False,
-            gamma_correct=False,
-            rotate=False,
-            auto_rotate=True,    # V11: auto-rotate for tilted pages
-            verbose=False,
+            CONFIG['detection_size'],
+            CONFIG['text_threshold'],
+            CONFIG['box_threshold'],
+            CONFIG['unclip_ratio'],
+            False,  # invert
+            False,  # gamma_correct
+            False,  # rotate
+            True,   # auto_rotate (V11: for tilted pages)
+            False,  # verbose
         ))
 
         # ─── V11: textline_merge — group lines into bubbles ───────
@@ -2939,7 +2941,7 @@ log_event("Cell 7: OCR Engine ready (Baidu + Qwen VL)")
 <a id='cell-08'></a>
 ## 🧩 Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)
 **Source file:** `cell_08_inpainting.py`
-**Length:** 11596 chars / 327 lines
+**Length:** 12016 chars / 334 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3060,10 +3062,10 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         try:
             from manga_translator.inpainting.common import InpainterConfig
             cfg = InpainterConfig()
+            # Use positional args to avoid keyword conflicts with InpainterConfig fields
+            # Signature: inpaint(image, mask, config, inpainting_size=1024, verbose=False)
             result = _run_async(lama_inpainter.inpaint(
-                image_np, dilated, cfg,
-                inpainting_size=inpainting_size,
-                verbose=False,
+                image_np, dilated, cfg, inpainting_size, False,
             ))
             if result is not None and result.size > 0:
                 # Ensure same size as input
@@ -3121,14 +3123,21 @@ def inpaint_full_page(image_np, regions, detector=None):
         detector = ctd_detector
     if detector is not None:
         try:
+            # Use positional args to avoid keyword conflicts
+            # Signature: detect(image, detect_size, text_threshold, box_threshold,
+            #                   unclip_ratio, invert, gamma_correct, rotate,
+            #                   auto_rotate=False, verbose=False)
             _, _, ctd_mask = _run_async(detector.detect(
                 image_np,
-                detect_size=CONFIG['detection_size'],
-                text_threshold=CONFIG['text_threshold'],
-                box_threshold=CONFIG['box_threshold'],
-                unclip_ratio=CONFIG['unclip_ratio'],
-                invert=False, gamma_correct=False, rotate=False,
-                auto_rotate=False, verbose=False,
+                CONFIG['detection_size'],
+                CONFIG['text_threshold'],
+                CONFIG['box_threshold'],
+                CONFIG['unclip_ratio'],
+                False,  # invert
+                False,  # gamma_correct
+                False,  # rotate
+                False,  # auto_rotate
+                False,  # verbose
             ))
             if ctd_mask is not None and ctd_mask.size > 0:
                 if ctd_mask.shape[:2] != (h, w):

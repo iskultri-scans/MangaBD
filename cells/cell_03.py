@@ -352,12 +352,15 @@ if ctd_detector is not None:
                     2, (0, 0, 0), 4)
         textlines, raw_mask, mask = _run_async(ctd_detector.detect(
             test_img,
-            detect_size=CONFIG['detection_size'],
-            text_threshold=CONFIG['text_threshold'],
-            box_threshold=CONFIG['box_threshold'],
-            unclip_ratio=CONFIG['unclip_ratio'],
-            invert=False, gamma_correct=False, rotate=False,
-            auto_rotate=False, verbose=False,
+            CONFIG['detection_size'],
+            CONFIG['text_threshold'],
+            CONFIG['box_threshold'],
+            CONFIG['unclip_ratio'],
+            False,  # invert
+            False,  # gamma_correct
+            False,  # rotate
+            False,  # auto_rotate
+            False,  # verbose
         ))
         print(f"  ✅ CTD: detected {len(textlines)} regions on test image")
     except Exception as e:
@@ -389,8 +392,7 @@ if lama_inpainter is not None:
         from manga_translator.inpainting.common import InpainterConfig
         cfg = InpainterConfig()
         result = _run_async(lama_inpainter.inpaint(
-            test_img, mask, cfg, inpainting_size=256,
-            verbose=False,
+            test_img, mask, cfg, 256, False,
         ))
         if result is not None and result.size > 0:
             center_val = int(np.mean(result[120:140, 120:140]))
