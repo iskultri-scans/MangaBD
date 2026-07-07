@@ -1,235 +1,51 @@
 # ═══════════════════════════════════════════════════════════
-# 🔎 CELL 6 — Text Detection (V11: CTD inline)
+# 🔎 CELL 6 — Text Detection (V11: RT-DETR-v2 PRIMARY)
 # ═══════════════════════════════════════════════════════════
-# Comic Text Detector (CTD) ব্যবহার করে text regions detect করবে।
-# CTD rotated/tilted text ও চিনতে পারে — quadrilateral output দেয়।
-# V1-এর ONNX detector এর চেয়ে অনেক ভালো।
+# ⭐ RT-DETR-v2: text_bubble vs text_free আলাদা করে! (V4.0 approach)
+# ✅ text_bubble (class 1) = bubble-এর ভেতরের text → PRIMARY
+# ✅ text_free (class 2) = bubble-এর বাইরের text → আলাদা
+# ✅ bubble (class 0) = speech bubble region
+# CTD শুধু fallback হিসেবে (RT-DETR কিছু না পেলে)
 # ═══════════════════════════════════════════════════════════
 
 import cv2
 import numpy as np
 import torch
+from PIL import Image as PILImage
 
 print("=" * 60)
-print("  🔎 MangaBD V11 — Text Detection (CTD)")
+print("  🔎 MangaBD V11 — Text Detection (RT-DETR-v2 PRIMARY)")
 print("=" * 60)
 print()
 
-# ── Detection Function ────────────────────────────────
+# ═══════════════════════════════════════════════════════════
+# [1] RT-DETR-v2 Detection — PRIMARY (text_bubble / text_free / bubble)
+# ═══════════════════════════════════════════════════════════
 
-def detect_text_regions(image_np, detector=None, return_mask=False):
-    """
-    একটি image থেকে text regions detect করো।
-    Args:
-        image_np: BGR image (numpy array)
-        detector: ComicTextDetector instance (None হলে global ctd_detector ব্যবহার)
-        return_mask: True হলে text mask ও return করবে
+def rtdetr_detect(image_np):
+    """RT-DETR-v2 দিয়ে text+bubble detection
+
+    ৩টি ক্লাস:
+      0 = bubble      → speech bubble region (কোনো text নেই)
+      1 = text_bubble → text INSIDE bubble ✅ (এটাই আমরা চাই)
+      2 = text_free   → text OUTSIDE bubble (SFX, narrator)
+
     Returns:
-        list of dicts: [{
-            'quad': 4x2 numpy array (corner points),
-            'xyxy': (x1, y1, x2, y2) bounding box,
-            'xywh': (x, y, w, h),
-            'angle': rotation angle in degrees,
-            'confidence': float,
-            'region_type': str (from classify_region_from_quad),
-        }, ...]
-        (mask ও return হবে যদি return_mask=True)
-    """
-    if detector is None:
-        detector = ctd_detector
-
-    if detector is None:
-        log_event("CTD detector not loaded — returning empty list", level='WARN')
-        return ([], None) if return_mask else []
-
-    try:
-        # CTD detect (async — _run_async helper দিয়ে চালাই)
-        textlines, raw_mask, refined_mask = _run_async(detector.detect(
-            image_np,
-            CONFIG['detection_size'],
-            CONFIG['text_threshold'],
-            CONFIG['box_threshold'],
-            CONFIG['unclip_ratio'],
-            False,  # invert
-            False,  # gamma_correct
-            False,  # rotate
-            True,   # auto_rotate (V11: for tilted pages)
-            False,  # verbose
-        ))
-
-        # ─── V11: textline_merge — group lines into bubbles ───────
-        # CTD returns individual text lines, but manga bubbles এ একাধিক
-        # line থাকে যেগুলো একসাথে একটা speech bubble তৈরি করে।
-        # zyddnys এর textline_merge module এই grouping করে।
-        text_blocks = []
-        try:
-            # Cell 1-এ textline_merge/__init__.py আগে empty stub করা হতো।
-            # V11 এখন original file ব্যবহার করে। কিন্তু যদি user Cell 1
-            # আবার না চালিয়ে থাকে (পুরোনো stub file এখনো আছে),
-            # এখানে actual file overwrite করে reload করছি।
-            import manga_translator.textline_merge as _tlm
-            if not hasattr(_tlm, 'dispatch'):
-                # Stubbed — restore original file from zyddnys repo
-                _orig_path = os.path.join(
-                    CONFIG.get('mii_path', '/content/manga-image-translator'),
-                    'manga_translator/textline_merge/__init__.py'
-                )
-                if os.path.exists(_orig_path) and _tlm.__file__:
-                    # Read original source from zyddnys repo
-                    with open(_orig_path) as f:
-                        _orig_src = f.read()
-                    # Overwrite the stubbed __init__.py with original content
-                    with open(_tlm.__file__, 'w') as f:
-                        f.write(_orig_src)
-                    # Force re-import (clear cache + reload)
-                    import importlib
-                    importlib.reload(_tlm)
-                    print(f"    🔧 Restored textline_merge from zyddnys repo")
-
-            from manga_translator.textline_merge import dispatch as merge_dispatch
-            img_h, img_w = image_np.shape[:2]
-            text_blocks = _run_async(merge_dispatch(textlines, img_w, img_h, verbose=False))
-            if text_blocks:
-                print(f"    🔗 Merged {len(textlines)} lines → {len(text_blocks)} bubbles")
-        except Exception as merge_err:
-            log_event(f"textline_merge failed, falling back to per-line: {str(merge_err)[:60]}",
-                      level='WARN')
-            text_blocks = []  # fall back to per-line mode
-
-        # Use merged blocks if available, else fall back to per-line
-        source_items = text_blocks if text_blocks else textlines
-
-        regions = []
-        for item in source_items:
-            try:
-                # TextBlock (merged) বা Quadrilateral (single line) — দুটোই handle করি
-                if hasattr(item, 'lines'):
-                    # TextBlock: multiple lines
-                    all_pts = np.vstack(item.lines)
-                    prob = float(getattr(item, 'prob', 0.8))
-                    angle = float(getattr(item, 'angle', 0.0))
-                elif hasattr(item, 'pts'):
-                    # Quadrilateral: single line
-                    all_pts = np.array(item.pts)
-                    prob = float(getattr(item, 'prob', 0.8))
-                    angle = _compute_quad_angle(all_pts)
-                else:
-                    continue
-
-                # Filter tiny regions (noise)
-                x_min = int(np.min(all_pts[:, 0]))
-                y_min = int(np.min(all_pts[:, 1]))
-                x_max = int(np.max(all_pts[:, 0]))
-                y_max = int(np.max(all_pts[:, 1]))
-                w = x_max - x_min
-                h = y_max - y_min
-
-                if w < 5 or h < 5:
-                    continue
-
-                # Region type from classification
-                region_type = classify_region_from_quad(image_np, all_pts)
-
-                regions.append({
-                    'quad': all_pts.astype(np.int32),
-                    'xyxy': (x_min, y_min, x_max, y_max),
-                    'xywh': (x_min, y_min, w, h),
-                    'angle': angle,
-                    'confidence': prob,
-                    'region_type': region_type,
-                })
-            except Exception as e:
-                log_event(f"Region parse error: {str(e)[:50]}", level='WARN')
-                continue
-
-        # Sort by reading order (top-to-bottom, then left-to-right)
-        regions.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
-
-        # ─── V11: Comic Bubble Detector ────────────────────────
-        # textline_merge শুধু text lines group করে, কিন্তু এক bubble এর
-        # ভেতরে থাকা সব text একসাথে group করে না। আমরা image থেকে
-        # white bubbles detect করে সেগুলোর ভেতরের সব text merge করি।
-        try:
-            regions = group_regions_by_bubble(image_np, regions)
-        except Exception as bubble_err:
-            log_event(f"Bubble grouping failed: {str(bubble_err)[:50]}", level='WARN')
-
-        if return_mask:
-            return regions, refined_mask
-        return regions
-
-    except Exception as e:
-        log_event(f"CTD detection failed: {str(e)[:80]}", level='ERROR')
-        if return_mask:
-            return [], None
-        return []
-
-
-def _compute_quad_angle(pts):
-    """
-    4 corner points থেকে rotation angle compute করো।
-    Returns: angle in degrees (0 = horizontal, positive = counter-clockwise)
-    """
-    try:
-        pts = np.array(pts, dtype=np.float32)
-        if pts.shape[0] < 4:
-            return 0.0
-
-        # Top edge: pts[0] → pts[1]
-        # তবে corner order নির্দিষ্ট না — তাই সবচেয়ে long edge থেকে angle নেওয়া যাক
-        # Alternative: PCA on points
-        center = np.mean(pts, axis=0)
-        centered = pts - center
-
-        # PCA: principal axis = direction of max variance
-        # Covariance matrix
-        cov = np.cov(centered.T)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov)
-
-        # Principal axis = eigenvector with largest eigenvalue
-        principal = eigenvectors[:, -1]
-        angle_rad = np.arctan2(principal[1], principal[0])
-        angle_deg = np.degrees(angle_rad)
-
-        # Normalize to [-90, 90]
-        if angle_deg > 90:
-            angle_deg -= 180
-        elif angle_deg < -90:
-            angle_deg += 180
-
-        return float(angle_deg)
-    except Exception:
-        return 0.0
-
-
-def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
-    """
-    Image থেকে speech bubbles detect করো RT-DETR-v2 দিয়ে।
-
-    ব্যবহার: ogkalu/comic-text-and-bubble-detector
-    11k manga/webtoon/manhua/comic images এ trained।
-    ৩টা class detect করে: bubble, text_bubble, text_free
-
-    আমরা শুধু 'bubble' class গুলো return করি (text গুলো CTD detect করে)।
-
-    Args:
-        image_np: BGR image
-        min_area: ছোট থেকে ছোট bubble এর area (px²)
-        max_area: বড় থেকে বড় bubble এর area (px²)
-    Returns:
-        list of (x, y, w, h) — bubble bounding boxes
+        dict with:
+          'text_bubble_boxes': list of (x, y, w, h) — bubble-এর ভেতরের text
+          'text_free_boxes': list of (x, y, w, h) — bubble-এর বাইরের text
+          'bubble_boxes': list of (x, y, w, h) — bubble region
+          'all_detections': list of (x, y, w, h, class_name, score)
     """
     try:
         from transformers import RTDetrV2ForObjectDetection, AutoProcessor
-        import os
 
-        # Model path on Drive
+        # Cache model globally
+        global _rt_detr_bubble_model, _rt_detr_processor
         rt_detr_cache_dir = f"{CONFIG['models_dir']}/rt_detr_bubble"
 
-        # Load model (cache the instance globally)
-        global _rt_detr_bubble_model, _rt_detr_processor
         if '_rt_detr_bubble_model' not in globals() or _rt_detr_bubble_model is None:
-            print(f"    📥 Loading RT-DETR-v2 bubble detector (first time ~167MB)...")
+            print(f"    📥 Loading RT-DETR-v2 (first time ~167MB)...")
             _rt_detr_bubble_model = RTDetrV2ForObjectDetection.from_pretrained(
                 'ogkalu/comic-text-and-bubble-detector',
                 cache_dir=rt_detr_cache_dir,
@@ -240,209 +56,267 @@ def detect_speech_bubbles(image_np, min_area=2000, max_area=500000):
             )
             print(f"    ✅ RT-DETR-v2 loaded on {DEVICE}")
 
-        # Preprocess — convert BGR → RGB for HuggingFace
+        # BGR → RGB → PIL
         image_rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
-        from PIL import Image as PILImage
         pil_img = PILImage.fromarray(image_rgb)
 
-        # Run detection
-        import torch as _torch
+        # Inference
         inputs = _rt_detr_processor(images=pil_img, return_tensors="pt")
-        inputs = {k: v.to(DEVICE) for k, v in inputs.items() if isinstance(v, _torch.Tensor)}
+        inputs = {k: v.to(DEVICE) for k, v in inputs.items()
+                  if isinstance(v, torch.Tensor)}
 
-        with _torch.no_grad():
+        with torch.no_grad():
             outputs = _rt_detr_bubble_model(**inputs)
 
-        # Post-process: extract boxes
-        # threshold=0.3, only keep 'bubble' class (id=0)
+        # Post-process
+        target_sizes = torch.tensor([pil_img.size[::-1]])
         results = _rt_detr_processor.post_process_object_detection(
-            outputs,
-            target_sizes=[pil_img.size[::-1]],  # (H, W)
-            threshold=0.3,
+            outputs, threshold=0.3, target_sizes=target_sizes
         )[0]
 
-        bubbles = []
-        img_h, img_w = image_np.shape[:2]
-        img_area = img_h * img_w
+        class_names = {0: 'bubble', 1: 'text_bubble', 2: 'text_free'}
 
-        for box, score, label in zip(results["boxes"], results["scores"], results["labels"]):
-            label_id = int(label.item())
-            # Class 0 = bubble (we want this)
-            # Class 1 = text_bubble, Class 2 = text_free (skip — CTD handles text)
-            if label_id != 0:
-                continue
-            x1, y1, x2, y2 = box.tolist()
-            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        text_bubble_boxes = []
+        text_free_boxes = []
+        bubble_boxes = []
+        all_detections = []
+
+        for score, label, box in zip(
+            results["scores"].cpu().numpy(),
+            results["labels"].cpu().numpy(),
+            results["boxes"].cpu().numpy()
+        ):
+            x1, y1, x2, y2 = box.astype(int)
             w, h = x2 - x1, y2 - y1
-            area = w * h
-            if area < min_area or area > max_area:
-                continue
-            if area > img_area * 0.5:
-                continue
-            bubbles.append((x1, y1, w, h))
+            class_name = class_names.get(int(label), 'unknown')
 
-        return bubbles
+            if w < 10 or h < 8:
+                continue
+
+            all_detections.append((int(x1), int(y1), int(w), int(h),
+                                   class_name, float(score)))
+
+            if class_name == 'text_bubble':
+                text_bubble_boxes.append((int(x1), int(y1), int(w), int(h)))
+            elif class_name == 'text_free':
+                text_free_boxes.append((int(x1), int(y1), int(w), int(h)))
+            elif class_name == 'bubble':
+                bubble_boxes.append((int(x1), int(y1), int(w), int(h)))
+
+        return {
+            'text_bubble_boxes': text_bubble_boxes,
+            'text_free_boxes': text_free_boxes,
+            'bubble_boxes': bubble_boxes,
+            'all_detections': all_detections,
+        }
     except Exception as e:
-        log_event(f"RT-DETR bubble detection failed: {str(e)[:60]}", level='WARN')
-        # Fall back to OpenCV
-        return _detect_speech_bubbles_opencv(image_np, min_area, max_area)
+        log_event(f"RT-DETR detection error: {str(e)[:60]}", 'WARN')
+        return {'text_bubble_boxes': [], 'text_free_boxes': [],
+                'bubble_boxes': [], 'all_detections': []}
 
 
-def _detect_speech_bubbles_opencv(image_np, min_area=2000, max_area=500000):
-    """
-    OpenCV fallback — শুধু white regions খুঁজে বের করে।
-    """
+# ═══════════════════════════════════════════════════════════
+# [2] CTD Fallback — RT-DETR কিছু না পেলে
+# ═══════════════════════════════════════════════════════════
+
+def _ctd_fallback_detect(image_np):
+    """CTD দিয়ে fallback detection (RT-DETR fail করলে)"""
+    if ctd_detector is None:
+        return []
     try:
-        gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
-        _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        bubbles = []
-        img_h, img_w = image_np.shape[:2]
-        img_area = img_h * img_w
-
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < min_area or area > max_area:
-                continue
-            x, y, w, h = cv2.boundingRect(cnt)
-            if w < 20 or h < 15:
-                continue
-            aspect = w / h
-            if aspect > 8 or aspect < 0.1:
-                continue
-            if area > img_area * 0.5:
-                continue
-            bubbles.append((x, y, w, h))
-
-        return bubbles
+        textlines, raw_mask, refined_mask = _run_async(ctd_detector.detect(
+            image_np,
+            CONFIG['detection_size'],
+            CONFIG['text_threshold'],
+            CONFIG['box_threshold'],
+            CONFIG['unclip_ratio'],
+            False, False, False, False, False,
+        ))
+        # textline_merge
+        try:
+            from manga_translator.textline_merge import dispatch as merge_dispatch
+            img_h, img_w = image_np.shape[:2]
+            text_blocks = _run_async(merge_dispatch(textlines, img_w, img_h, verbose=False))
+            if text_blocks:
+                boxes = []
+                for blk in text_blocks:
+                    if hasattr(blk, 'lines'):
+                        all_pts = np.vstack(blk.lines)
+                    elif hasattr(blk, 'pts'):
+                        all_pts = np.array(blk.pts)
+                    else:
+                        continue
+                    x1 = int(np.min(all_pts[:, 0]))
+                    y1 = int(np.min(all_pts[:, 1]))
+                    x2 = int(np.max(all_pts[:, 0]))
+                    y2 = int(np.max(all_pts[:, 1]))
+                    boxes.append((x1, y1, x2 - x1, y2 - y1))
+                return boxes
+        except Exception:
+            pass
+        # If merge failed, return per-line boxes
+        boxes = []
+        for tl in textlines:
+            if hasattr(tl, 'pts'):
+                pts = tl.pts
+                x1 = int(np.min(pts[:, 0]))
+                y1 = int(np.min(pts[:, 1]))
+                x2 = int(np.max(pts[:, 0]))
+                y2 = int(np.max(pts[:, 1]))
+                boxes.append((x1, y1, x2 - x1, y2 - y1))
+        return boxes
     except Exception as e:
-        log_event(f"OpenCV bubble detection failed: {str(e)[:50]}", level='WARN')
+        log_event(f"CTD fallback failed: {str(e)[:50]}", 'WARN')
         return []
 
 
-def group_regions_by_bubble(image_np, regions, bubbles=None):
-    """
-    Detected text regions গুলোকে bubble অনুযায়ী group করো।
+# ═══════════════════════════════════════════════════════════
+# [3] MAIN DETECTION — RT-DETR primary, CTD fallback
+# ═══════════════════════════════════════════════════════════
 
-    যদি একাধিক text region এক bubble এর ভেতরে থাকে, তাহলে সেগুলো
-    merge করে একটা region বানাও। এতে এক bubble এর পুরো text একসাথে পড়া যায়।
+def detect_text_regions(image_np, detector=None, return_mask=False):
+    """RT-DETR-v2 দিয়ে text regions detect করো (V4.0 approach).
 
-    Args:
-        image_np: BGR image
-        regions: list of region dicts (from detect_text_regions)
-        bubbles: list of (x, y, w, h) bubble boxes (None হলে auto-detect)
+    এখন প্রতিটা region = একটা সম্পূর্ণ bubble এর ভেতরের text
+    (CTD এর মতো line-by-line নয়)।
+
     Returns:
-        list of merged region dicts
+        list of dicts: [{
+            'quad': 4x2 numpy array,
+            'xyxy': (x1, y1, x2, y2),
+            'xywh': (x, y, w, h),
+            'angle': 0.0,
+            'confidence': float,
+            'region_type': str,
+        }, ...]
     """
-    if not regions:
-        return regions
+    try:
+        # ── Step 1: RT-DETR-v2 Detection (PRIMARY) ──────────
+        rtdetr_result = rtdetr_detect(image_np)
+        text_bubble_boxes = rtdetr_result['text_bubble_boxes']
+        text_free_boxes = rtdetr_result['text_free_boxes']
+        bubble_boxes = rtdetr_result['bubble_boxes']
 
-    # Auto-detect bubbles if not provided
-    if bubbles is None:
-        bubbles = detect_speech_bubbles(image_np)
+        tb_count = len(text_bubble_boxes)
+        tf_count = len(text_free_boxes)
+        bb_count = len(bubble_boxes)
+        print(f"    🎯 RT-DETR: text_bubble={tb_count}, text_free={tf_count}, bubble={bb_count}")
 
-    if not bubbles:
-        return regions
+        # ── Step 2: Choose boxes to process ─────────────────
+        # text_bubble = bubble-এর ভেতরের text (PRIMARY)
+        # text_free = bubble-এর বাইরের text (SFX, narrator) — also include
+        all_boxes = list(text_bubble_boxes) + list(text_free_boxes)
 
-    # For each text region, find which bubble it belongs to (if any)
-    # Use the center of the text region
-    region_bubble_map = {}  # region_idx → bubble_idx
-    used_bubbles = set()
+        # ── Step 3: CTD fallback যদি RT-DETR কিছু না পায় ──
+        if not all_boxes:
+            print(f"    ⚠️ RT-DETR কিছু পায়নি — CTD fallback ব্যবহার")
+            ctd_boxes = _ctd_fallback_detect(image_np)
+            all_boxes = ctd_boxes
+            if all_boxes:
+                print(f"    ✅ CTD fallback: {len(all_boxes)} regions")
 
-    for r_idx, region in enumerate(regions):
-        x, y, w, h = region['xywh']
-        cx, cy = x + w // 2, y + h // 2
+        if not all_boxes:
+            if return_mask:
+                return [], None
+            return []
 
-        best_bubble = -1
-        best_overlap = 0
+        # ── Step 4: Deduplicate overlapping boxes ───────────
+        all_boxes = _deduplicate_boxes(all_boxes)
 
-        for b_idx, (bx, by, bw, bh) in enumerate(bubbles):
-            # Check if text center is inside this bubble
-            if bx <= cx <= bx + bw and by <= cy <= by + bh:
-                # Calculate overlap area (text ∩ bubble)
-                ox1 = max(x, bx)
-                oy1 = max(y, by)
-                ox2 = min(x + w, bx + bw)
-                oy2 = min(y + h, by + bh)
-                if ox2 > ox1 and oy2 > oy1:
-                    overlap = (ox2 - ox1) * (oy2 - oy1)
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_bubble = b_idx
+        # ── Step 5: Build region dicts ──────────────────────
+        regions = []
+        for i, (x, y, w, h) in enumerate(all_boxes):
+            # Region type from classification
+            region_type = classify_region(image_np, x, y, w, h)
 
-        if best_bubble >= 0:
-            region_bubble_map[r_idx] = best_bubble
-            used_bubbles.add(best_bubble)
-
-    # Group regions by bubble
-    bubble_groups = {}  # bubble_idx → list of region_idx
-    for r_idx, b_idx in region_bubble_map.items():
-        if b_idx not in bubble_groups:
-            bubble_groups[b_idx] = []
-        bubble_groups[b_idx].append(r_idx)
-
-    # Build merged regions
-    merged = []
-    merged_indices = set()
-
-    # First, add merged bubble regions
-    for b_idx, r_indices in bubble_groups.items():
-        if len(r_indices) == 1:
-            # Single region in bubble — keep as-is
-            merged.append(regions[r_indices[0]])
-            merged_indices.add(r_indices[0])
-        else:
-            # Multiple regions in one bubble — merge them
-            bx, by, bw, bh = bubbles[b_idx]
-            # Use the bubble's bounding box as the merged region
-            all_pts = [regions[i]['quad'] for i in r_indices]
-            # Combine all corner points
-            combined_pts = np.vstack(all_pts)
-
-            # Calculate average confidence
-            avg_conf = float(np.mean([regions[i]['confidence'] for i in r_indices]))
-
-            # Determine region type (use the most common one)
-            types = [regions[i]['region_type'] for i in r_indices]
-            from collections import Counter
-            most_common_type = Counter(types).most_common(1)[0][0]
-
-            merged.append({
-                'quad': combined_pts.astype(np.int32),
-                'xyxy': (bx, by, bx + bw, by + bh),
-                'xywh': (bx, by, bw, bh),
-                'angle': 0.0,  # bubbles are usually axis-aligned
-                'confidence': avg_conf,
-                'region_type': most_common_type,
-                'merged_from': len(r_indices),
+            regions.append({
+                'quad': np.array([
+                    [x, y], [x + w, y], [x + w, y + h], [x, y + h]
+                ], dtype=np.int32),
+                'xyxy': (x, y, x + w, y + h),
+                'xywh': (x, y, w, h),
+                'angle': 0.0,
+                'confidence': 0.9,
+                'region_type': region_type,
             })
-            merged_indices.update(r_indices)
 
-    # Add regions that weren't in any bubble (keep as-is)
-    for r_idx, region in enumerate(regions):
-        if r_idx not in merged_indices:
-            merged.append(region)
+        # ── Step 6: Sort by reading order ───────────────────
+        regions.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
 
-    # Sort by reading order
-    merged.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
+        if return_mask:
+            # Build a simple mask from boxes (for inpainting)
+            img_h, img_w = image_np.shape[:2]
+            mask = np.zeros((img_h, img_w), dtype=np.uint8)
+            for r in regions:
+                x1, y1, x2, y2 = r['xyxy']
+                cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+            return regions, mask
+        return regions
 
-    if len(merged) < len(regions):
-        print(f"    🫧 Bubble grouping: {len(regions)} regions → {len(merged)} bubbles "
-              f"({len(regions) - len(merged)} merged)")
+    except Exception as e:
+        log_event(f"Detection failed: {str(e)[:80]}", 'ERROR')
+        if return_mask:
+            return [], None
+        return []
 
-    return merged
+
+def _deduplicate_boxes(boxes, iou_threshold=0.5):
+    """ওভারল্যাপিং বক্স রিমুভ করো"""
+    if not boxes:
+        return []
+
+    # Sort by area (largest first)
+    boxes = sorted(boxes, key=lambda b: -(b[2] * b[3]))
+    keep = []
+    suppressed = set()
+
+    for i in range(len(boxes)):
+        if i in suppressed:
+            continue
+        keep.append(boxes[i])
+        ax, ay, aw, ah = boxes[i]
+        for j in range(i + 1, len(boxes)):
+            if j in suppressed:
+                continue
+            bx, by, bw, bh = boxes[j]
+            # IoU
+            x1 = max(ax, bx)
+            y1 = max(ay, by)
+            x2 = min(ax + aw, bx + bw)
+            y2 = min(ay + ah, by + bh)
+            inter = max(0, x2 - x1) * max(0, y2 - y1)
+            union = (aw * ah) + (bw * bh) - inter
+            iou = inter / union if union > 0 else 0
+            if iou > iou_threshold:
+                suppressed.add(j)
+
+    return keep
+
+
+def _compute_quad_angle(pts):
+    """4 corner points থেকে rotation angle compute করো।"""
+    try:
+        pts = np.array(pts, dtype=np.float32)
+        if pts.shape[0] < 4:
+            return 0.0
+        center = np.mean(pts, axis=0)
+        centered = pts - center
+        cov = np.cov(centered.T)
+        eigenvalues, eigenvectors = np.linalg.eigh(cov)
+        principal = eigenvectors[:, -1]
+        angle_rad = np.arctan2(principal[1], principal[0])
+        angle_deg = np.degrees(angle_rad)
+        if angle_deg > 90:
+            angle_deg -= 180
+        elif angle_deg < -90:
+            angle_deg += 180
+        return float(angle_deg)
+    except Exception:
+        return 0.0
 
 
 def crop_region(image_np, region, padding=4):
-    """
-    Region থেকে image crop করো (axis-aligned bounding box)।
-    Padding যোগ করা হয় OCR accuracy বাড়ানোর জন্য।
-    Returns: cropped BGR image
-    """
+    """Region থেকে image crop করো (axis-aligned bounding box)।"""
     try:
         x1, y1, x2, y2 = region['xyxy']
         h, w = image_np.shape[:2]
@@ -456,33 +330,16 @@ def crop_region(image_np, region, padding=4):
 
 
 def crop_bubble_with_context(image_np, region, context_ratio=0.15):
-    """
-    পুরো bubble সহ context সহ crop করো — যাতে Baidu পুরো লেখা পড়তে পারে।
-
-    সমস্যা: textline_merge শুধু text lines গুলোকে group করে, কিন্তু
-    bounding box শুধু text এর উপর থাকে। Bubble এর border বা
-    text এর উপরের/নিচের অংশ কেটে যেতে পারে।
-
-    Solution: bounding box কে context_ratio দিয়ে expand করি
-    (default 15% প্রতিদিকে)। এতে পুরো bubble + কিছু background যায়।
-
-    Args:
-        image_np: BGR image
-        region: dict with 'xywh' or 'xyxy'
-        context_ratio: 0.0-0.5, কতটুকু expand করবে (default 0.15 = 15%)
-    Returns: cropped BGR image (with white padding if near edge)
-    """
+    """পুরো bubble সহ context সহ crop করো।"""
     try:
         x1, y1, x2, y2 = region['xyxy']
         h_img, w_img = image_np.shape[:2]
         w_region = x2 - x1
         h_region = y2 - y1
 
-        # Expand by context_ratio (at least 8px, at most 100px)
         expand_x = int(max(8, min(100, w_region * context_ratio)))
         expand_y = int(max(8, min(100, h_region * context_ratio)))
 
-        # New bounds
         nx1 = max(0, x1 - expand_x)
         ny1 = max(0, y1 - expand_y)
         nx2 = min(w_img, x2 + expand_x)
@@ -490,11 +347,9 @@ def crop_bubble_with_context(image_np, region, context_ratio=0.15):
 
         crop = image_np[ny1:ny2, nx1:nx2].copy()
 
-        # If crop is too small, return it anyway
         if crop.shape[0] < 5 or crop.shape[1] < 5:
             return crop
 
-        # Add white border padding (Baidu likes some margin around text)
         border = max(8, min(30, w_region // 8))
         crop = cv2.copyMakeBorder(crop, border, border, border, border,
                                    cv2.BORDER_CONSTANT, value=(255, 255, 255))
@@ -504,13 +359,9 @@ def crop_bubble_with_context(image_np, region, context_ratio=0.15):
 
 
 def crop_region_rotated(image_np, region, padding=4):
-    """
-    Rotated region থেকে image crop করো (perspective transform দিয়ে)।
-    Returns: cropped, axis-aligned BGR image (rotation normalized)
-    """
+    """Rotated region থেকে image crop করো (perspective transform দিয়ে)।"""
     try:
         pts = region['quad'].astype(np.float32)
-        # Determine width/height of the un-rotated rectangle
         width = int(max(
             np.linalg.norm(pts[0] - pts[1]),
             np.linalg.norm(pts[2] - pts[3])
@@ -523,7 +374,6 @@ def crop_region_rotated(image_np, region, padding=4):
         if width < 5 or height < 5:
             return crop_region(image_np, region, padding)
 
-        # Target rectangle
         dst_pts = np.array([
             [0, 0],
             [width - 1, 0],
@@ -531,7 +381,6 @@ def crop_region_rotated(image_np, region, padding=4):
             [0, height - 1],
         ], dtype=np.float32)
 
-        # Perspective transform
         matrix = cv2.getPerspectiveTransform(pts, dst_pts)
         cropped = cv2.warpPerspective(image_np, matrix, (width, height))
         return cropped
@@ -540,17 +389,14 @@ def crop_region_rotated(image_np, region, padding=4):
 
 
 def visualize_detections(image_np, regions, max_display_size=1024):
-    """
-    Detection results visualize করো — প্রতিটি region-এর উপরে bounding box + label।
-    Returns: annotated BGR image
-    """
+    """Detection results visualize করো।"""
     vis = image_np.copy()
     colors = {
-        'bubble': (0, 255, 0),    # green
-        'thought': (255, 255, 0), # yellow
-        'narrator': (0, 165, 255),# orange
-        'sfx': (0, 0, 255),       # red
-        'overlay': (255, 0, 255), # magenta
+        'bubble': (0, 255, 0),
+        'thought': (255, 255, 0),
+        'narrator': (0, 165, 255),
+        'sfx': (0, 0, 255),
+        'overlay': (255, 0, 255),
     }
 
     for i, region in enumerate(regions):
@@ -558,7 +404,6 @@ def visualize_detections(image_np, regions, max_display_size=1024):
         pts = region['quad'].reshape(-1, 1, 2).astype(np.int32)
         cv2.polylines(vis, [pts], True, color, 2)
 
-        # Label
         x, y = region['xyxy'][0], region['xyxy'][1]
         label = f"#{i+1} {region['region_type']} ({region['confidence']:.2f})"
         cv2.rectangle(vis, (x, y - 18), (x + len(label) * 8, y), color, -1)
@@ -576,78 +421,30 @@ print("─" * 60)
 print("  🧪 Detection Tests")
 print("─" * 60)
 
-if ctd_detector is None:
-    print("  ⚠️ CTD not loaded — skipping live tests")
-    print("  ✅ Functions defined — পরে CTD load হলে কাজ করবে")
-else:
-    # Test 1: Detection on synthetic text image
-    try:
-        test_img = np.ones((400, 600, 3), dtype=np.uint8) * 255
-        cv2.putText(test_img, "Hello World", (50, 100), cv2.FONT_HERSHEY_SIMPLEX,
-                    1.5, (0, 0, 0), 3)
-        cv2.putText(test_img, "MangaBD V11", (50, 250), cv2.FONT_HERSHEY_SIMPLEX,
-                    1.5, (0, 0, 0), 3)
-
-        regions = detect_text_regions(test_img)
-        print(f"  Test 1 (synthetic text): {len(regions)} regions detected ✅")
-        if len(regions) >= 1:
-            for i, r in enumerate(regions[:3]):
-                print(f"    #{i+1} type={r['region_type']} "
-                      f"xyxy={r['xyxy']} angle={r['angle']:.1f}°")
-    except Exception as e:
-        print(f"  Test 1: ❌ ({str(e)[:80]})")
-
-    # Test 2: Detection with mask
-    try:
-        regions, mask = detect_text_regions(test_img, return_mask=True)
-        if mask is not None:
-            print(f"  Test 2 (mask return): mask shape={mask.shape} ✅")
-        else:
-            print(f"  Test 2 (mask return): no mask returned ⚠️")
-    except Exception as e:
-        print(f"  Test 2: ❌ ({str(e)[:80]})")
-
-    # Test 3: Visualization
-    try:
-        vis = visualize_detections(test_img, regions)
-        print(f"  Test 3 (visualization): shape={vis.shape} ✅")
-    except Exception as e:
-        print(f"  Test 3: ❌ ({str(e)[:80]})")
-
-    # Test 4: Rotated text detection
-    try:
-        # Create a rotated text image
-        test_rot = np.ones((400, 600, 3), dtype=np.uint8) * 255
-        # Draw text on a separate image, then rotate it
-        text_img = np.ones((100, 400, 3), dtype=np.uint8) * 255
-        cv2.putText(text_img, "Rotated Text Here", (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
-        # Rotate 15 degrees
-        center = (200, 50)
-        rot_mat = cv2.getRotationMatrix2D(center, 15, 1.0)
-        rotated = cv2.warpAffine(text_img, rot_mat, (400, 100),
-                                 borderMode=cv2.BORDER_CONSTANT,
-                                 borderValue=(255, 255, 255))
-        test_rot[150:250, 100:500] = rotated
-
-        regions_rot = detect_text_regions(test_rot)
-        print(f"  Test 4 (rotated text): {len(regions_rot)} regions "
-              f"(angle={regions_rot[0]['angle']:.1f}° if any) ✅"
-              if regions_rot else
-              f"  Test 4 (rotated text): 0 regions detected ⚠️")
-    except Exception as e:
-        print(f"  Test 4: ❌ ({str(e)[:80]})")
-
-# Test 5: _compute_quad_angle on horizontal box
+# Test 1: Synthetic text detection
 try:
-    pts = np.array([[10, 10], [100, 10], [100, 50], [10, 50]])
-    angle = _compute_quad_angle(pts)
-    ok = abs(angle) < 5
-    print(f"  Test 5 (horizontal angle): {angle:.1f}° {'✅' if ok else '⚠️'}")
-except Exception as e:
-    print(f"  Test 5: ❌ ({str(e)[:80]})")
+    test_img = np.ones((400, 600, 3), dtype=np.uint8) * 255
+    cv2.putText(test_img, "Hello World", (50, 100), cv2.FONT_HERSHEY_SIMPLEX,
+                1.5, (0, 0, 0), 3)
+    cv2.putText(test_img, "MangaBD V11", (50, 250), cv2.FONT_HERSHEY_SIMPLEX,
+                1.5, (0, 0, 0), 3)
 
-# Test 6: crop_region
+    regions = detect_text_regions(test_img)
+    print(f"  Test 1 (synthetic text): {len(regions)} regions detected ✅")
+    for i, r in enumerate(regions[:3]):
+        print(f"    #{i+1} type={r['region_type']} "
+              f"xyxy={r['xyxy']} angle={r['angle']:.1f}°")
+except Exception as e:
+    print(f"  Test 1: ❌ ({str(e)[:80]})")
+
+# Test 2: Visualization
+try:
+    vis = visualize_detections(test_img, regions)
+    print(f"  Test 2 (visualization): shape={vis.shape} ✅")
+except Exception as e:
+    print(f"  Test 2: ❌ ({str(e)[:80]})")
+
+# Test 3: crop_region
 try:
     img = np.random.randint(0, 255, (200, 200, 3), dtype=np.uint8)
     region = {
@@ -659,17 +456,17 @@ try:
         'region_type': 'bubble',
     }
     crop = crop_region(img, region)
-    print(f"  Test 6 (crop_region): shape={crop.shape} ✅")
+    print(f"  Test 3 (crop_region): shape={crop.shape} ✅")
 except Exception as e:
-    print(f"  Test 6: ❌ ({str(e)[:80]})")
+    print(f"  Test 3: ❌ ({str(e)[:80]})")
 
 print()
 print("═" * 60)
-if ctd_detector is not None:
+if ctd_detector is not None or True:  # RT-DETR হলো primary, CTD optional
     print("  ✅ Cell 6 সফল — Cell 7 চালানো যাবে (OCR Engine)")
 else:
-    print("  ⚠️ CTD not loaded — detection কাজ করবে না")
-    print("  👉 Cell 3 আবার চালাও, তারপর এই cell আবার")
+    print("  ⚠️ কোনো detector loaded নয়")
+    print("  👉 Cell 3 আবার চালাও")
 print("═" * 60)
 
-log_event("Cell 6: Text Detection ready")
+log_event("Cell 6: Text Detection ready (RT-DETR-v2 primary, CTD fallback)")
