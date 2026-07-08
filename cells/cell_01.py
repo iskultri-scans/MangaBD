@@ -121,6 +121,31 @@ for i in range(0, len(CORE_PACKAGES), 6):
 
 print()
 
+# ── Verify critical CTD dependencies (after batch install) ──
+print("─" * 60)
+print("  🔍 Verifying CTD dependencies")
+print("─" * 60)
+
+# CTD (Comic Text Detector) এর জন্য দরকারী packages
+# যদি --no-deps retry এ কোনো package এর dependency missing থাকে,
+# এখানে আলাদাভাবে install করব
+CTD_DEPS = ['pyclipper', 'shapely', 'networkx', 'scikit-image',
+            'einops', 'kornia', 'timm']
+for pkg in CTD_DEPS:
+    try:
+        __import__(pkg)
+        print(f"  ✅ {pkg} available")
+    except ImportError:
+        print(f"  ⚠️ {pkg} missing — installing...")
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet',
+                       '--disable-pip-version-check', pkg], check=False)
+        try:
+            __import__(pkg)
+            print(f"  ✅ {pkg} installed successfully")
+        except ImportError:
+            print(f"  ❌ {pkg} failed to install")
+print()
+
 # ── Verify libraqm (CRITICAL for Bengali) ─────────────
 print("─" * 60)
 print("  🔤 Verifying libraqm (Bengali conjuncts)")
