@@ -219,10 +219,68 @@ print("─" * 60)
 PATCHES = {
     # Top-level: avoid triggering full chain
     'manga_translator/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
-    # detection: avoid paddle_rust import
-    'manga_translator/detection/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
+    # detection: patched to avoid paddle_rust import but keep ctd accessible
+    'manga_translator/detection/__init__.py': '''# Patched by MangaBD V11 — safe detection imports
+# Avoids paddle_rust (rusty_manga_image_translator dependency)
+# But keeps ctd, common, ctd_utils accessible
+
+# These imports are safe (no rusty dependency)
+try:
+    from .common import CommonDetector, OfflineDetector
+except Exception:
+    pass
+
+# CTD is our primary detector
+try:
+    from .ctd import ComicTextDetector
+except Exception:
+    pass
+
+# Other detectors (optional, may fail — that's OK)
+try:
+    from .default import DefaultDetector
+except Exception:
+    pass
+try:
+    from .dbnet_convnext import DBConvNextDetector
+except Exception:
+    pass
+try:
+    from .craft import CRAFTDetector
+except Exception:
+    pass
+try:
+    from .none import NoneDetector
+except Exception:
+    pass
+
+# DO NOT import paddle_rust — it requires rusty_manga_image_translator
+''',
     # inpainting: avoid sd/ldm import chain
-    'manga_translator/inpainting/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
+    'manga_translator/inpainting/__init__.py': '''# Patched by MangaBD V11 — safe inpainting imports
+# Avoids sd/ldm import chain (heavy dependencies)
+try:
+    from .common import CommonInpainter, OfflineInpainter
+except Exception:
+    pass
+try:
+    from .inpainting_lama_mpe import LamaMPEInpainter, LamaLargeInpainter
+except Exception:
+    pass
+try:
+    from .inpainting_aot import AotInpainter
+except Exception:
+    pass
+try:
+    from .original import OriginalInpainter
+except Exception:
+    pass
+try:
+    from .none import NoneInpainter
+except Exception:
+    pass
+# DO NOT import inpainting_sd (stable diffusion — heavy)
+''',
     # translators: avoid deep chain
     'manga_translator/translators/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # ocr: avoid rust import
