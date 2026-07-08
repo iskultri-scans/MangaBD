@@ -2928,7 +2928,7 @@ log_event("Cell 7: OCR Engine ready (Baidu + Qwen VL)")
 <a id='cell-08'></a>
 ## 🧩 Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)
 **Source file:** `cell_08_inpainting.py`
-**Length:** 11787 chars / 324 lines
+**Length:** 12439 chars / 338 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3092,27 +3092,41 @@ def inpaint_full_page(image_np, regions, detector=None):
 
     h, w = image_np.shape[:2]
 
-    # ── V11: Pixel-level text mask (NOT bounding box!) ──────
-    # ONNX Comic Text Detector দিয়ে pixel-level mask তৈরি করো
-    # এতে শুধু text pixel remove হবে, background এর ক্ষতি হবে না
+    # ── V11: zyddnys mask_refinement (pixel-perfect!) ──────
+    # zyddnys এর mask_refinement.dispatch() ব্যবহার করে pixel-perfect mask
+    # এটা DenseCRF দিয়ে text pixel গুলোর boundary একদম precise করে
     full_mask = None
-    try:
-        # comic_detect_pixel_mask Cell 6 এ defined
-        pixel_mask = comic_detect_pixel_mask(image_np)
-        if pixel_mask is not None:
-            # RT-DETR region দিয়ে filter করো
-            rtdetr_result = rtdetr_detect(image_np)
-            smart_mask = create_smart_text_mask(image_np, rtdetr_result, pixel_mask)
-            if smart_mask is not None and np.sum(smart_mask > 0) > 0:
-                full_mask = smart_mask
-                print(f"    ✅ Pixel-level mask: {np.sum(full_mask > 0):,} text pixels")
-            elif pixel_mask is not None and np.sum(pixel_mask > 0) > 0:
-                full_mask = pixel_mask
-                print(f"    ✅ Raw pixel mask: {np.sum(full_mask > 0):,} text pixels")
-    except Exception as e:
-        log_event(f"Pixel mask creation failed: {str(e)[:50]}", 'WARN')
 
-    # Fallback: bounding box mask (less precise)
+    # Primary: zyddnys mask_refinement (best quality)
+    try:
+        # _refine_mask_zyddnys Cell 6 এ defined
+        if '_refine_mask_zyddnys' in globals():
+            refined_mask = _refine_mask_zyddnys(image_np, regions)
+            if refined_mask is not None and np.sum(refined_mask > 0) > 0:
+                full_mask = refined_mask
+                print(f"    ✅ zyddnys refined mask: {np.sum(full_mask > 0):,} text pixels")
+    except Exception as e:
+        log_event(f"zyddnys mask refinement failed: {str(e)[:50]}", 'WARN')
+
+    # Fallback 1: ONNX pixel mask
+    if full_mask is None:
+        try:
+            # comic_detect_pixel_mask Cell 6 এ defined
+            pixel_mask = comic_detect_pixel_mask(image_np)
+            if pixel_mask is not None and np.sum(pixel_mask > 0) > 0:
+                # RT-DETR region দিয়ে filter করো
+                rtdetr_result = rtdetr_detect(image_np)
+                smart_mask = create_smart_text_mask(image_np, rtdetr_result, pixel_mask)
+                if smart_mask is not None and np.sum(smart_mask > 0) > 0:
+                    full_mask = smart_mask
+                    print(f"    ✅ ONNX pixel mask: {np.sum(full_mask > 0):,} text pixels")
+                else:
+                    full_mask = pixel_mask
+                    print(f"    ✅ Raw ONNX pixel mask: {np.sum(full_mask > 0):,} text pixels")
+        except Exception as e:
+            log_event(f"ONNX pixel mask failed: {str(e)[:50]}", 'WARN')
+
+    # Fallback 2: bounding box mask (least precise)
     if full_mask is None:
         print(f"    ⚠️ Using bounding box mask (less precise)")
         full_mask = np.zeros((h, w), dtype=np.uint8)
