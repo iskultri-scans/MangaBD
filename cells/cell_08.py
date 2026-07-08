@@ -147,7 +147,7 @@ def _opencv_inpaint(image_np, mask, radius=5):
 def inpaint_full_page(image_np, regions, detector=None):
     """
     Page-এর সব text regions একসাথে inpaint করো।
-    প্রতিটি region-এর জন্য আলাদা mask তৈরি করে union করে একসাথে inpaint করা হয়।
+    V11: Pixel-level text mask ব্যবহার করে (bounding box নয়)।
     Args:
         image_np: BGR image
         regions: list of region dicts (from detect_text_regions)
@@ -159,47 +159,37 @@ def inpaint_full_page(image_np, regions, detector=None):
 
     h, w = image_np.shape[:2]
 
-    # Build full-page mask
-    full_mask = np.zeros((h, w), dtype=np.uint8)
+    # ── V11: Pixel-level text mask (NOT bounding box!) ──────
+    # ONNX Comic Text Detector দিয়ে pixel-level mask তৈরি করো
+    # এতে শুধু text pixel remove হবে, background এর ক্ষতি হবে না
+    full_mask = None
+    try:
+        # comic_detect_pixel_mask Cell 6 এ defined
+        pixel_mask = comic_detect_pixel_mask(image_np)
+        if pixel_mask is not None:
+            # RT-DETR region দিয়ে filter করো
+            rtdetr_result = rtdetr_detect(image_np)
+            smart_mask = create_smart_text_mask(image_np, rtdetr_result, pixel_mask)
+            if smart_mask is not None and np.sum(smart_mask > 0) > 0:
+                full_mask = smart_mask
+                print(f"    ✅ Pixel-level mask: {np.sum(full_mask > 0):,} text pixels")
+            elif pixel_mask is not None and np.sum(pixel_mask > 0) > 0:
+                full_mask = pixel_mask
+                print(f"    ✅ Raw pixel mask: {np.sum(full_mask > 0):,} text pixels")
+    except Exception as e:
+        log_event(f"Pixel mask creation failed: {str(e)[:50]}", 'WARN')
 
-    for region in regions:
-        try:
-            # Use quadrilateral points to fill mask
-            pts = region['quad'].astype(np.int32).reshape(-1, 1, 2)
-            cv2.fillPoly(full_mask, [pts], 255)
-        except Exception:
-            # Fallback: use bounding box
-            x1, y1, x2, y2 = region['xyxy']
-            cv2.rectangle(full_mask, (x1, y1), (x2, y2), 255, -1)
-
-    # If detector is available, also use CTD's refined mask
-    if detector is None:
-        detector = ctd_detector
-    if detector is not None:
-        try:
-            # Use positional args to avoid keyword conflicts
-            # Signature: detect(image, detect_size, text_threshold, box_threshold,
-            #                   unclip_ratio, invert, gamma_correct, rotate,
-            #                   auto_rotate=False, verbose=False)
-            _, _, ctd_mask = _run_async(detector.detect(
-                image_np,
-                CONFIG['detection_size'],
-                CONFIG['text_threshold'],
-                CONFIG['box_threshold'],
-                CONFIG['unclip_ratio'],
-                False,  # invert
-                False,  # gamma_correct
-                False,  # rotate
-                False,  # auto_rotate
-                False,  # verbose
-            ))
-            if ctd_mask is not None and ctd_mask.size > 0:
-                if ctd_mask.shape[:2] != (h, w):
-                    ctd_mask = cv2.resize(ctd_mask, (w, h))
-                # Union: take max of our mask and CTD mask
-                full_mask = np.maximum(full_mask, ctd_mask.astype(np.uint8))
-        except Exception as e:
-            log_event(f"CTD mask union failed: {str(e)[:50]}", level='WARN')
+    # Fallback: bounding box mask (less precise)
+    if full_mask is None:
+        print(f"    ⚠️ Using bounding box mask (less precise)")
+        full_mask = np.zeros((h, w), dtype=np.uint8)
+        for region in regions:
+            try:
+                pts = region['quad'].astype(np.int32).reshape(-1, 1, 2)
+                cv2.fillPoly(full_mask, [pts], 255)
+            except Exception:
+                x1, y1, x2, y2 = region['xyxy']
+                cv2.rectangle(full_mask, (x1, y1), (x2, y2), 255, -1)
 
     # Inpaint
     return inpaint_region(image_np, full_mask)
