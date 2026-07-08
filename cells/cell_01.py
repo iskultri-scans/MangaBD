@@ -68,6 +68,8 @@ CORE_PACKAGES = [
     # Uses HuggingFace transformers — no extra package needed
     # ONNX runtime for pixel-level text mask (mayocream/comic-text-detector-onnx)
     "onnxruntime>=1.16.0",
+    # pydensecrf for mask refinement (zyddnys mask_refinement uses this)
+    "pydensecrf>=1.0rc2",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
@@ -208,8 +210,8 @@ PATCHES = {
     'manga_translator/mode/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # textline_merge: KEEP ORIGINAL (Cell 6 uses it to group lines into bubbles)
     # 'manga_translator/textline_merge/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
-    # mask_refinement: not needed
-    'manga_translator/mask_refinement/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
+    # mask_refinement: KEEP ORIGINAL (Cell 6/8 uses it for pixel-level mask)
+    # 'manga_translator/mask_refinement/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # rendering: avoid triggering chain
     'manga_translator/rendering/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
 }

@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 13269 chars / 363 lines
+**Length:** 13413 chars / 365 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -82,6 +82,8 @@ CORE_PACKAGES = [
     # Uses HuggingFace transformers — no extra package needed
     # ONNX runtime for pixel-level text mask (mayocream/comic-text-detector-onnx)
     "onnxruntime>=1.16.0",
+    # pydensecrf for mask refinement (zyddnys mask_refinement uses this)
+    "pydensecrf>=1.0rc2",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",
@@ -222,8 +224,8 @@ PATCHES = {
     'manga_translator/mode/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # textline_merge: KEEP ORIGINAL (Cell 6 uses it to group lines into bubbles)
     # 'manga_translator/textline_merge/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
-    # mask_refinement: not needed
-    'manga_translator/mask_refinement/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
+    # mask_refinement: KEEP ORIGINAL (Cell 6/8 uses it for pixel-level mask)
+    # 'manga_translator/mask_refinement/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
     # rendering: avoid triggering chain
     'manga_translator/rendering/__init__.py': '# Patched by MangaBD V11 (empty stub)\n',
 }
@@ -1932,7 +1934,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: RT-DETR-v2 PRIMARY)
 **Source file:** `cell_06_detection.py`
-**Length:** 21585 chars / 594 lines
+**Length:** 23914 chars / 658 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2288,28 +2290,33 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         regions.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
 
         if return_mask:
-            # ── V11: Pixel-level text mask (NOT bounding box!) ──
-            # ONNX Comic Text Detector দিয়ে pixel-level mask তৈরি করো
-            # এতে শুধু text pixel remove হবে, background এর ক্ষতি হবে না
+            # ── V11: zyddnys mask_refinement (pixel-perfect!) ──
+            # CTD already gives pixel-level raw mask
+            # zyddnys এর mask_refinement.dispatch() সেটাকে refine করে:
+            #   1. Connected components খুঁজে বের করে
+            #   2. প্রতিটা component কে textline এর সাথে match করে
+            #   3. DenseCRF দিয়ে pixel-perfect করে
+            #   4. Dilate করে
+            # ফলে শুধু আসল text pixel remove হবে, background ঠিক থাকবে
+            refined_mask = _refine_mask_zyddnys(image_np, regions)
+            if refined_mask is not None and np.sum(refined_mask > 0) > 0:
+                print(f"    ✅ Refined pixel mask: {np.sum(refined_mask > 0):,} text pixels")
+                return regions, refined_mask
+
+            # Fallback 1: ONNX pixel mask
+            print(f"    ⚠️ Mask refinement failed, trying ONNX pixel mask")
             pixel_mask = comic_detect_pixel_mask(image_np)
-            if pixel_mask is not None:
-                # RT-DETR region দিয়ে filter করো (শুধু text_bubble area)
-                smart_mask = create_smart_text_mask(image_np, rtdetr_result, pixel_mask)
-                if smart_mask is not None and np.sum(smart_mask > 0) > 0:
-                    print(f"    ✅ Pixel-level text mask: {np.sum(smart_mask > 0):,} pixels")
-                    return regions, smart_mask
-                else:
-                    print(f"    ⚠️ Smart mask empty, using raw pixel mask")
-                    return regions, pixel_mask
-            else:
-                # Fallback: bounding box mask (less precise)
-                print(f"    ⚠️ Pixel mask failed, using bounding box mask")
-                img_h, img_w = image_np.shape[:2]
-                mask = np.zeros((img_h, img_w), dtype=np.uint8)
-                for r in regions:
-                    x1, y1, x2, y2 = r['xyxy']
-                    cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
-                return regions, mask
+            if pixel_mask is not None and np.sum(pixel_mask > 0) > 0:
+                return regions, pixel_mask
+
+            # Fallback 2: bounding box mask (less precise)
+            print(f"    ⚠️ All pixel masks failed, using bounding box mask")
+            img_h, img_w = image_np.shape[:2]
+            mask = np.zeros((img_h, img_w), dtype=np.uint8)
+            for r in regions:
+                x1, y1, x2, y2 = r['xyxy']
+                cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+            return regions, mask
         return regions
 
     except Exception as e:
@@ -2317,6 +2324,65 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         if return_mask:
             return [], None
         return []
+
+
+def _refine_mask_zyddnys(image_np, regions):
+    """zyddnys এর mask_refinement.dispatch() ব্যবহার করে pixel-perfect mask।
+
+    এটা zyddnys/manga-image-translator এর actual pipeline —
+    CTD এর raw mask কে DenseCRF দিয়ে refine করে।
+
+    Returns: numpy (H, W) uint8 — refined pixel-level text mask, or None
+    """
+    try:
+        from manga_translator.mask_refinement import dispatch as refine_dispatch
+
+        # CTD থেকে raw pixel mask নাও (এটাই আসল pixel-level mask!)
+        # CTD detect এ আমরা refined_mask পাই — সেটাই raw mask হিসেবে কাজ করবে
+        if ctd_detector is None:
+            return None
+
+        # CTD detect করে raw mask পাওয়া যায়
+        # আমরা চাই pixel-level mask, তাই আলাদাভাবে CTD detect চালাব
+        textlines_raw, raw_mask, _ = _run_async(ctd_detector.detect(
+            image_np,
+            CONFIG['detection_size'],
+            CONFIG['text_threshold'],
+            CONFIG['box_threshold'],
+            CONFIG['unclip_ratio'],
+            False, False, False, False, False,
+        ))
+
+        if raw_mask is None or np.sum(raw_mask > 0) == 0:
+            return None
+
+        # textline_merge দিয়ে text lines গুলোকে regions এ group করো
+        from manga_translator.textline_merge import dispatch as merge_dispatch
+        img_h, img_w = image_np.shape[:2]
+        text_blocks = _run_async(merge_dispatch(textlines_raw, img_w, img_h, verbose=False))
+
+        if not text_blocks:
+            return None
+
+        # zyddnys এর mask_refinement — pixel-perfect mask তৈরি করে
+        # এটা DenseCRF ব্যবহার করে text pixel গুলোকে precise করে
+        refined = _run_async(refine_dispatch(
+            text_blocks,
+            image_np,
+            raw_mask,
+            'fit_text',  # method: fit_text (precise) বা fill (bounding box)
+            0,           # dilation_offset
+            0,           # ignore_bubble
+            False,       # verbose
+            3,           # kernel_size
+        ))
+
+        if refined is not None and np.sum(refined > 0) > 0:
+            return refined
+        return None
+    except Exception as e:
+        log_event(f"zyddnys mask refinement failed: {str(e)[:60]}", 'WARN')
+        return None
 
 
 def _deduplicate_boxes(boxes, iou_threshold=0.5):
