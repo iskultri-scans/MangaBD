@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 14300 chars / 390 lines
+**Length:** 14513 chars / 396 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -372,7 +372,13 @@ try:
     from manga_translator.detection.ctd import ComicTextDetector
     print("  ✅ ComicTextDetector (CTD) imported")
 except Exception as e:
-    print(f"  ❌ CTD import failed: {str(e)[:120]}")
+    print(f"  ❌ CTD import failed: {str(e)[:200]}")
+    # Show full traceback for debugging
+    import traceback
+    print(f"  📍 Full traceback:")
+    for line in traceback.format_exc().split('\n')[-6:-1]:
+        if line.strip():
+            print(f"     {line}")
     import_errors.append(('CTD', str(e)))
 
 try:

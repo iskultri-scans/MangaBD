@@ -358,7 +358,13 @@ try:
     from manga_translator.detection.ctd import ComicTextDetector
     print("  ✅ ComicTextDetector (CTD) imported")
 except Exception as e:
-    print(f"  ❌ CTD import failed: {str(e)[:120]}")
+    print(f"  ❌ CTD import failed: {str(e)[:200]}")
+    # Show full traceback for debugging
+    import traceback
+    print(f"  📍 Full traceback:")
+    for line in traceback.format_exc().split('\n')[-6:-1]:
+        if line.strip():
+            print(f"     {line}")
     import_errors.append(('CTD', str(e)))
 
 try:
