@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 15866 chars / 454 lines
+**Length:** 16698 chars / 476 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -423,6 +423,28 @@ print("  🧪 Verifying critical imports")
 print("─" * 60)
 
 sys.path.insert(0, MII_PATH)
+
+# ── Clear stale module cache (CRITICAL for re-runs!) ──
+# যখন user পুরোনো Cell 1 চালায়, sys.modules এ broken entries cache হয়
+# নতুন Cell 1 চালালেও সেই cache থেকে যায় → KeyError
+# Solution: সব manga_translator related entries clear করো
+import sys as _sys
+_stale_modules = [k for k in _sys.modules.keys() if k.startswith('manga_translator')]
+for _mod in _stale_modules:
+    del _sys.modules[_mod]
+if _stale_modules:
+    print(f"  🧹 Cleared {len(_stale_modules)} stale module cache entries")
+
+# Also delete __pycache__ directories (stale .pyc files)
+import shutil as _shutil
+for _root, _dirs, _files in os.walk(MII_PATH):
+    for _d in _dirs:
+        if _d == '__pycache__':
+            _pcache = os.path.join(_root, _d)
+            try:
+                _shutil.rmtree(_pcache)
+            except Exception:
+                pass
 
 import_errors = []
 
