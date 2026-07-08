@@ -66,6 +66,8 @@ CORE_PACKAGES = [
     # Qwen VL (PRIMARY OCR) only needs transformers (already installed)
     # RT-DETR for Comic Bubble Detection (ogkalu/comic-text-and-bubble-detector)
     # Uses HuggingFace transformers — no extra package needed
+    # ONNX runtime for pixel-level text mask (mayocream/comic-text-detector-onnx)
+    "onnxruntime>=1.16.0",
     # Rendering helpers
     "freetype-py>=2.4.0",
     "pyhyphen>=4.0.0",

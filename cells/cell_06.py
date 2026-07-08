@@ -119,6 +119,113 @@ def rtdetr_detect(image_np):
 # [2] CTD Fallback — RT-DETR কিছু না পেলে
 # ═══════════════════════════════════════════════════════════
 
+def comic_detect_pixel_mask(image_np):
+    """ONNX Comic Text Detector দিয়ে pixel-level text mask তৈরি করো।
+
+    এটা মূল সমাধান! Bounding box mask নয়, বরং প্রতিটা text pixel
+    আলাদাভাবে detect করে। এতে inpainting এ শুধু text pixel remove
+    হয়, background এর কোনো ক্ষতি হয় না।
+
+    Model: mayocream/comic-text-detector-onnx (HuggingFace)
+    Output: text_mask (H, W) — 255 = text pixel, 0 = background
+
+    Returns:
+        numpy (H, W) uint8 — pixel-level text mask, or None if failed
+    """
+    try:
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+
+        # Cache model globally
+        global _comic_onnx_session
+        if '_comic_onnx_session' not in globals() or _comic_onnx_session is None:
+            print(f"    📥 Loading ONNX Comic Text Detector (~50MB, first time)...")
+            onnx_path = hf_hub_download(
+                repo_id="mayocream/comic-text-detector-onnx",
+                filename="comic-text-detector.onnx",
+                cache_dir=f"{CONFIG['models_dir']}/comic_onnx",
+            )
+            _comic_onnx_session = ort.InferenceSession(
+                onnx_path,
+                providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+            )
+            print(f"    ✅ ONNX Comic Text Detector loaded")
+
+        h_orig, w_orig = image_np.shape[:2]
+        input_size = 1024  # Model expects 1024×1024
+
+        # Resize to 1024×1024
+        image_resized = cv2.resize(image_np, (input_size, input_size))
+
+        # Preprocessing: BGR → RGB, normalize, NCHW
+        image_rgb = cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB)
+        image_float = image_rgb.astype(np.float32) / 255.0
+        image_transposed = np.transpose(image_float, (2, 0, 1))
+        blob = np.expand_dims(image_transposed, axis=0)
+
+        # ONNX Inference
+        input_name = _comic_onnx_session.get_inputs()[0].name
+        outputs = _comic_onnx_session.run(None, {input_name: blob})
+
+        # Output parsing
+        # outputs[1] = text segmentation mask [1, 1, 1024, 1024]
+        seg_output = outputs[1]
+        seg_mask = seg_output[0, 0]  # [1024, 1024]
+        seg_mask = (seg_mask > 0.5).astype(np.uint8) * 255
+
+        # Resize back to original size
+        text_mask = cv2.resize(seg_mask, (w_orig, h_orig))
+
+        return text_mask
+    except Exception as e:
+        log_event(f"ONNX pixel mask failed: {str(e)[:60]}", 'WARN')
+        return None
+
+
+def create_smart_text_mask(image_np, rtdetr_result, pixel_mask):
+    """Pixel-level text mask কে RT-DETR text_bubble region দিয়ে filter করো।
+
+    শুধু text_bubble box-এর ভেতরের pixel mask রাখো।
+    text_free box-এর ভেতরের pixel mask ও রাখো (SFX, narrator ও remove করতে হবে)।
+
+    Returns:
+        numpy (H, W) uint8 — smart pixel-level text mask
+    """
+    if pixel_mask is None:
+        return None
+
+    h_img, w_img = image_np.shape[:2]
+    text_bubble_boxes = rtdetr_result.get('text_bubble_boxes', [])
+    text_free_boxes = rtdetr_result.get('text_free_boxes', [])
+    bubble_boxes = rtdetr_result.get('bubble_boxes', [])
+
+    # যদি কোনো RT-DETR box না থাকে, পুরো pixel mask ফেরত দাও
+    if not text_bubble_boxes and not text_free_boxes:
+        return pixel_mask
+
+    # text_bubble + text_free box গুলো নাও (দুটোই remove করতে হবে)
+    all_text_boxes = list(text_bubble_boxes) + list(text_free_boxes)
+
+    if not all_text_boxes:
+        return pixel_mask
+
+    # Region mask তৈরি করো (শুধু box-এর ভেতরের area)
+    region_mask = np.zeros((h_img, w_img), dtype=np.uint8)
+    for (x, y, w, h) in all_text_boxes:
+        x1, y1 = max(0, x), max(0, y)
+        x2, y2 = min(w_img, x + w), min(h_img, y + h)
+        region_mask[y1:y2, x1:x2] = 255
+
+    # Pixel mask ∩ Region mask = শুধু text_bubble region-এর text pixel
+    smart_mask = cv2.bitwise_and(pixel_mask, region_mask)
+
+    # যদি smart_mask খালি হয়, pixel mask ব্যবহার করো (fallback)
+    if np.sum(smart_mask > 0) == 0:
+        return pixel_mask
+
+    return smart_mask
+
+
 def _ctd_fallback_detect(image_np):
     """CTD দিয়ে fallback detection (RT-DETR fail করলে)"""
     if ctd_detector is None:
@@ -244,13 +351,28 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
         regions.sort(key=lambda r: (r['xyxy'][1] // 50, r['xyxy'][0]))
 
         if return_mask:
-            # Build a simple mask from boxes (for inpainting)
-            img_h, img_w = image_np.shape[:2]
-            mask = np.zeros((img_h, img_w), dtype=np.uint8)
-            for r in regions:
-                x1, y1, x2, y2 = r['xyxy']
-                cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
-            return regions, mask
+            # ── V11: Pixel-level text mask (NOT bounding box!) ──
+            # ONNX Comic Text Detector দিয়ে pixel-level mask তৈরি করো
+            # এতে শুধু text pixel remove হবে, background এর ক্ষতি হবে না
+            pixel_mask = comic_detect_pixel_mask(image_np)
+            if pixel_mask is not None:
+                # RT-DETR region দিয়ে filter করো (শুধু text_bubble area)
+                smart_mask = create_smart_text_mask(image_np, rtdetr_result, pixel_mask)
+                if smart_mask is not None and np.sum(smart_mask > 0) > 0:
+                    print(f"    ✅ Pixel-level text mask: {np.sum(smart_mask > 0):,} pixels")
+                    return regions, smart_mask
+                else:
+                    print(f"    ⚠️ Smart mask empty, using raw pixel mask")
+                    return regions, pixel_mask
+            else:
+                # Fallback: bounding box mask (less precise)
+                print(f"    ⚠️ Pixel mask failed, using bounding box mask")
+                img_h, img_w = image_np.shape[:2]
+                mask = np.zeros((img_h, img_w), dtype=np.uint8)
+                for r in regions:
+                    x1, y1, x2, y2 = r['xyxy']
+                    cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+                return regions, mask
         return regions
 
     except Exception as e:
