@@ -9,7 +9,7 @@
 <a id='cell-01'></a>
 ## 🧩 Cell 01 — 📦 CELL 1 — Installation & Environment Setup (V11)
 **Source file:** `cell_01_installation.py`
-**Length:** 16698 chars / 476 lines
+**Length:** 17995 chars / 503 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -143,21 +143,48 @@ print("─" * 60)
 # CTD (Comic Text Detector) এর জন্য দরকারী packages
 # যদি --no-deps retry এ কোনো package এর dependency missing থাকে,
 # এখানে আলাদাভাবে install করব
-CTD_DEPS = ['pyclipper', 'shapely', 'networkx', 'scikit-image',
-            'einops', 'kornia', 'timm']
-for pkg in CTD_DEPS:
+# Format: (pip_name, import_name)
+CTD_DEPS = [
+    ('pyclipper', 'pyclipper'),
+    ('shapely', 'shapely'),
+    ('networkx', 'networkx'),
+    ('scikit-image', 'skimage'),
+    ('einops', 'einops'),
+    ('kornia', 'kornia'),
+    ('timm', 'timm'),
+    # Pixel-level mask dependencies (CRITICAL for inpainting)
+    ('onnxruntime', 'onnxruntime'),
+    ('pydensecrf', 'pydensecrf'),
+]
+for pip_name, import_name in CTD_DEPS:
     try:
-        __import__(pkg)
-        print(f"  ✅ {pkg} available")
+        __import__(import_name)
+        print(f"  ✅ {pip_name} available")
     except ImportError:
-        print(f"  ⚠️ {pkg} missing — installing...")
+        print(f"  ⚠️ {pip_name} missing — installing...")
+        # Try normal install first
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet',
-                       '--disable-pip-version-check', pkg], check=False)
+                       '--disable-pip-version-check', pip_name], check=False)
         try:
-            __import__(pkg)
-            print(f"  ✅ {pkg} installed successfully")
+            __import__(import_name)
+            print(f"  ✅ {pip_name} installed successfully")
         except ImportError:
-            print(f"  ❌ {pkg} failed to install")
+            # For pydensecrf, try with --no-build-isolation
+            if pip_name == 'pydensecrf':
+                print(f"  🔄 Retrying pydensecrf with --no-build-isolation...")
+                subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet',
+                               '--disable-pip-version-check', '--no-build-isolation',
+                               'cython'], check=False)
+                subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet',
+                               '--disable-pip-version-check', '--no-build-isolation',
+                               pip_name], check=False)
+                try:
+                    __import__(import_name)
+                    print(f"  ✅ {pip_name} installed with --no-build-isolation")
+                except ImportError:
+                    print(f"  ❌ {pip_name} failed to install (not critical, will use fallback)")
+            else:
+                print(f"  ❌ {pip_name} failed to install")
 print()
 
 # ── Verify libraqm (CRITICAL for Bengali) ─────────────
