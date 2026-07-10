@@ -186,7 +186,7 @@ else:
         # ── Check 9 (V11): Re-run OCR on output to detect remaining English ──
         if original_np is not None and original_np.size > 0:
             try:
-                if baidu_ocr is not None or qwen_vl_ocr is not None:
+                if qwen_vl_ocr is not None:
                     # Sample a few random regions and check
                     sample_size = min(3, len(page_df))
                     if sample_size > 0:

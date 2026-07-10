@@ -30,16 +30,15 @@ models_loaded = {}
 
 # ── Derive model subdirectories from existing CONFIG paths ──
 # Cell 2-এ CONFIG তে শুধু *_model_path (full file path) আর models_dir আছে।
-# কোনো directory path key নেই (যেমন models_ctd, models_baidu ইত্যাদি)।
+# কোনো directory path key নেই (যেমন models_ctd ইত্যাদি)।
 # তাই এখানে সেগুলো derive করছি।
 ctd_model_dir = os.path.dirname(CONFIG['ctd_model_path'])
-baidu_cache_dir = f"{CONFIG['models_dir']}/baidu_ocr"
 qwen_cache_dir = f"{CONFIG['models_dir']}/qwen_vl"
 lama_model_dir = os.path.dirname(CONFIG['lama_model_path'])
 nllb_cache_dir = f"{CONFIG['models_dir']}/nllb"
 
 # Make sure all directories exist
-for d in [ctd_model_dir, baidu_cache_dir, qwen_cache_dir, lama_model_dir, nllb_cache_dir]:
+for d in [ctd_model_dir, qwen_cache_dir, lama_model_dir, nllb_cache_dir]:
     os.makedirs(d, exist_ok=True)
 
 # ── Helper: download with progress ────────────────────
@@ -136,19 +135,14 @@ print()
 # ═══════════════════════════════════════════════════════════
 # MODEL 2: Qwen 2.5 VL 3B (PRIMARY OCR)
 # ═══════════════════════════════════════════════════════════
-# Baidu Unlimited-OCR removed — too many compatibility issues:
-# - transformers 4.57.1 required (conflicts with other deps)
-# - torch._utils._rebuild_parameter missing in PyTorch 2.11
-# - LaTeX format output needs complex parsing
-# - 6.7GB download (too large)
-# Qwen VL is more reliable, smaller (3B), and gives clean text output.
+# Baidu OCR removed — Qwen VL is the only OCR engine
 print("─" * 60)
 print("  📖 Model 2/3: Qwen 2.5 VL 3B Instruct (PRIMARY OCR)")
 print("─" * 60)
 
 qwen_load_start = time.time()
 qwen_vl_ocr = None
-baidu_ocr = None  # Set to None for compatibility — Qwen is primary
+# Baidu OCR removed — Qwen VL is the only OCR engine
 try:
     from transformers import AutoProcessor
     # Try Qwen2.5-VL first (newer), fall back to Qwen2-VL

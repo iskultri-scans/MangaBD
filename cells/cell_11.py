@@ -27,7 +27,7 @@ else:
     # ── Setup ──
     rows = []
     all_detections = {}  # {filename: regions}
-    ocr_engine_used = {'baidu': 0, 'qwen': 0, 'failed': 0, 'skipped': 0}
+    ocr_engine_used = {'qwen': 0, 'failed': 0, 'skipped': 0}
 
     total_images = len(uploaded_images)
     print(f"  📂 {total_images} টি image process হবে")
@@ -89,9 +89,7 @@ else:
                     text, conf, engine = ocr_recognize(crop)
 
                 # Update counters
-                if engine == 'baidu':
-                    ocr_engine_used['baidu'] += 1
-                elif engine == 'qwen':
+                if engine == 'qwen':
                     ocr_engine_used['qwen'] += 1
                 elif '[OCR_FAILED' in text or '[EMPTY]' in text:
                     ocr_engine_used['failed'] += 1

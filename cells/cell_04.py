@@ -312,8 +312,8 @@ else:
     # Test 5: set_page_meta (V11 new)
     test5_ok = False
     try:
-        set_page_meta('_test_meta.jpg', 'ocr_engine', 'baidu')
-        if CHECKPOINT['pages']['_test_meta.jpg'].get('ocr_engine') == 'baidu':
+        set_page_meta('_test_meta.jpg', 'ocr_engine', 'qwen')
+        if CHECKPOINT['pages']['_test_meta.jpg'].get('ocr_engine') == 'qwen':
             print(f"  Test 5 (set_page_meta) : ✅")
             test5_ok = True
         else:

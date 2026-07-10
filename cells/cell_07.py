@@ -1,9 +1,8 @@
 # ═══════════════════════════════════════════════════════════
-# 📖 CELL 7 — OCR Engine (V11: Baidu + Qwen VL)
+# 📖 CELL 7 — OCR Engine (V11: Qwen VL only)
 # ═══════════════════════════════════════════════════════════
-# Primary: Baidu/Unlimited-OCR (free, fast, accurate)
-# Backup:  Qwen 2.5 VL 3B Instruct (high quality, slower)
-# যেকোনো সময় engine switch করা যাবে।
+# Qwen 2.5 VL 3B Instruct — the ONLY OCR engine
+# (Baidu removed — too many compatibility issues)
 # Preprocessing: upscale 2x if height < 40px, denoise, contrast boost
 # ═══════════════════════════════════════════════════════════
 
@@ -12,20 +11,20 @@ import numpy as np
 import torch
 
 print("=" * 60)
-print("  📖 MangaBD V11 — OCR Engine (Baidu + Qwen VL)")
+print("  📖 MangaBD V11 — OCR Engine (Qwen VL)")
 print("=" * 60)
 print()
 
 # ── Preprocessing ─────────────────────────────────────
 
-def preprocess_for_ocr(image_np, target_engine='baidu'):
+def preprocess_for_ocr(image_np, target_engine='qwen'):
     """
     OCR-এর আগে image preprocess করো:
       1. BGR → RGB
       2. Upscale 2x if height < 40px (small text recovery)
       3. Light denoise (bilateral filter — preserves edges)
       4. Contrast boost (CLAHE on grayscale)
-      5. (Optional) pad with white border
+      5. Pad with white border
     Returns: preprocessed RGB image
     """
     try:
@@ -80,8 +79,8 @@ def ocr_recognize(image_np, engine=None, fallback=True):
     একটি image region থেকে text recognize করো।
     Args:
         image_np: BGR image (cropped region)
-        engine: 'baidu' | 'qwen' | None (None হলে CONFIG['ocr_engine'])
-        fallback: True হলে primary fail করলে backup চেষ্টা করবে
+        engine: 'qwen' | None (None হলে CONFIG['ocr_engine'])
+        fallback: kept for compatibility (ignored — only Qwen available)
     Returns:
         tuple: (text: str, confidence: float, engine_used: str)
     """
@@ -91,69 +90,16 @@ def ocr_recognize(image_np, engine=None, fallback=True):
     # Preprocess
     preprocessed = preprocess_for_ocr(image_np, target_engine=engine)
 
-    text, confidence, engine_used = '', 0.0, engine
+    # Only Qwen VL is available
+    if qwen_vl_ocr is None:
+        return '[OCR_FAILED: no engine]', 0.0, 'none'
 
     try:
-        if engine == 'baidu' and baidu_ocr is not None:
-            text, confidence = baidu_ocr.recognize(preprocessed)
-            engine_used = 'baidu'
-
-            # Fallback to Qwen if low confidence or empty
-            if fallback and qwen_vl_ocr is not None:
-                if (confidence < CONFIG['ocr_min_confidence'] or
-                    not text.strip() or
-                    '[OCR_FAILED' in text):
-                    try:
-                        text2, conf2 = qwen_vl_ocr.recognize(preprocessed)
-                        if conf2 > confidence and text2.strip():
-                            text, confidence = text2, conf2
-                            engine_used = 'qwen'
-                    except Exception:
-                        pass
-
-        elif engine == 'qwen' and qwen_vl_ocr is not None:
-            text, confidence = qwen_vl_ocr.recognize(preprocessed)
-            engine_used = 'qwen'
-
-            # Fallback to Baidu
-            if fallback and baidu_ocr is not None:
-                if (confidence < CONFIG['ocr_min_confidence'] or
-                    not text.strip() or
-                    '[OCR_FAILED' in text):
-                    try:
-                        text2, conf2 = baidu_ocr.recognize(preprocessed)
-                        if conf2 > confidence and text2.strip():
-                            text, confidence = text2, conf2
-                            engine_used = 'baidu'
-                    except Exception:
-                        pass
-        else:
-            # Engine not available — try the other
-            if baidu_ocr is not None:
-                text, confidence = baidu_ocr.recognize(preprocessed)
-                engine_used = 'baidu'
-            elif qwen_vl_ocr is not None:
-                text, confidence = qwen_vl_ocr.recognize(preprocessed)
-                engine_used = 'qwen'
-            else:
-                return '[OCR_FAILED: no engine]', 0.0, 'none'
-
+        text, confidence = qwen_vl_ocr.recognize(preprocessed)
+        engine_used = 'qwen'
     except Exception as e:
-        log_event(f"OCR error ({engine}): {str(e)[:60]}", level='WARN')
-        # Try fallback if not already
-        if fallback:
-            other_engine = 'qwen' if engine == 'baidu' else 'baidu'
-            other_ocr = qwen_vl_ocr if engine == 'baidu' else baidu_ocr
-            if other_ocr is not None:
-                try:
-                    text, confidence = other_ocr.recognize(preprocessed)
-                    engine_used = other_engine
-                except Exception:
-                    return f'[OCR_FAILED: {str(e)[:30]}]', 0.0, 'none'
-            else:
-                return f'[OCR_FAILED: {str(e)[:30]}]', 0.0, 'none'
-        else:
-            return f'[OCR_FAILED: {str(e)[:30]}]', 0.0, 'none'
+        log_event(f"OCR error (qwen): {str(e)[:60]}", level='WARN')
+        return f'[OCR_FAILED: {str(e)[:30]}]', 0.0, 'none'
 
     # Clean text
     text = _clean_ocr_text(text)
@@ -164,25 +110,17 @@ def _clean_ocr_text(text):
     """OCR output থেকে unnecessary whitespace, artifacts সরাও।"""
     if not text:
         return ''
-    # Strip
     text = text.strip()
-    # Replace multiple whitespace with single space
     import re
     text = re.sub(r'\s+', ' ', text)
-    # Remove common OCR artifacts
-    text = text.replace('|', 'I').replace('l', 'l')  # pipe → I (common OCR error)
-    # Final strip
+    text = text.replace('|', 'I').replace('l', 'l')
     return text.strip()
 
 
 def is_english_text(text):
-    """
-    একটি text মূলত English কিনা check করো।
-    (Bengali OCR প্রতিরোধ করতে — manga source-এ শুধু English থাকা উচিত)
-    """
+    """একটি text মূলত English কিনা check করো।"""
     if not text:
         return False
-    # Count letters per script
     latin = sum(1 for c in text if 'a' <= c.lower() <= 'z')
     bengali = sum(1 for c in text if '\u0980' <= c <= '\u09FF')
     total_letters = latin + bengali
@@ -192,18 +130,15 @@ def is_english_text(text):
 
 
 def switch_ocr_engine(engine):
-    """OCR engine switch করো। Valid: 'baidu' | 'qwen'"""
-    if engine not in ('baidu', 'qwen'):
-        log_event(f"Invalid OCR engine: {engine}", level='WARN')
+    """OCR engine switch করো. Only 'qwen' is valid."""
+    if engine != 'qwen':
+        log_event(f"Invalid OCR engine: {engine} (only 'qwen' available)", level='WARN')
         return False
-    if engine == 'baidu' and baidu_ocr is None:
-        log_event("Baidu OCR not loaded", level='WARN')
-        return False
-    if engine == 'qwen' and qwen_vl_ocr is None:
+    if qwen_vl_ocr is None:
         log_event("Qwen VL not loaded", level='WARN')
         return False
     CONFIG['ocr_engine'] = engine
-    log_event(f"OCR engine switched to: {engine}")
+    log_event(f"OCR engine: {engine}")
     return True
 
 
@@ -211,9 +146,7 @@ def get_ocr_status():
     """OCR engine status return করো (for dashboard)."""
     return {
         'current': CONFIG['ocr_engine'],
-        'baidu_loaded': baidu_ocr is not None,
         'qwen_loaded': qwen_vl_ocr is not None,
-        'fallback_enabled': True,
     }
 
 
@@ -232,7 +165,6 @@ try:
                 0.6, (0, 0, 0), 1)
     preprocessed = preprocess_for_ocr(test_img)
     h, w = preprocessed.shape[:2]
-    # Should be upscaled to >= 60 (2x of 30) + padding
     upscaled_ok = h >= 60
     print(f"  Test 1 (preprocess): {h}x{w} (upscaled={'✅' if upscaled_ok else '⚠️'})")
 except Exception as e:
@@ -256,23 +188,7 @@ try:
 except Exception as e:
     print(f"  Test 3: ❌ ({str(e)[:60]})")
 
-# Test 4: Live OCR (Baidu)
-if baidu_ocr is not None:
-    try:
-        # Render clear English text
-        test_img = np.ones((80, 300, 3), dtype=np.uint8) * 255
-        cv2.putText(test_img, "MANGA TRANSLATOR", (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
-        text, conf, eng = ocr_recognize(test_img, engine='baidu', fallback=False)
-        ok = 'MANGA' in text.upper() or 'TRANSLATOR' in text.upper()
-        print(f"  Test 4 (Baidu OCR): '{text[:40]}' conf={conf:.2f} "
-              f"engine={eng} {'✅' if ok else '⚠️'}")
-    except Exception as e:
-        print(f"  Test 4: ❌ ({str(e)[:80]})")
-else:
-    print(f"  Test 4: ⏭️  Baidu OCR not loaded — skip")
-
-# Test 5: Live OCR (Qwen)
+# Test 4: Live OCR (Qwen)
 if qwen_vl_ocr is not None:
     try:
         test_img = np.ones((80, 300, 3), dtype=np.uint8) * 255
@@ -280,37 +196,37 @@ if qwen_vl_ocr is not None:
                     cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
         text, conf, eng = ocr_recognize(test_img, engine='qwen', fallback=False)
         ok = 'MANGA' in text.upper() or 'TRANSLATOR' in text.upper()
-        print(f"  Test 5 (Qwen OCR): '{text[:40]}' conf={conf:.2f} "
+        print(f"  Test 4 (Qwen OCR): '{text[:40]}' conf={conf:.2f} "
               f"engine={eng} {'✅' if ok else '⚠️'}")
     except Exception as e:
-        print(f"  Test 5: ❌ ({str(e)[:80]})")
+        print(f"  Test 4: ❌ ({str(e)[:80]})")
 else:
-    print(f"  Test 5: ⏭️  Qwen VL not loaded — skip")
+    print(f"  Test 4: ⏭️  Qwen VL not loaded — skip")
 
-# Test 6: Switch engine
+# Test 5: Switch engine
 try:
-    if baidu_ocr is not None:
+    if qwen_vl_ocr is not None:
         old = CONFIG['ocr_engine']
-        switch_ocr_engine('baidu')
+        switch_ocr_engine('qwen')
         new = CONFIG['ocr_engine']
         switch_ocr_engine(old)
-        ok = new == 'baidu'
-        print(f"  Test 6 (switch): {old} → {new} → {old} {'✅' if ok else '❌'}")
+        ok = new == 'qwen'
+        print(f"  Test 5 (switch): {old} → {new} → {old} {'✅' if ok else '❌'}")
     else:
-        print(f"  Test 6: ⏭️  skip (no engines)")
+        print(f"  Test 5: ⏭️  skip (Qwen not loaded)")
 except Exception as e:
-    print(f"  Test 6: ❌ ({str(e)[:60]})")
+    print(f"  Test 5: ❌ ({str(e)[:60]})")
 
-# Test 7: get_ocr_status
+# Test 6: get_ocr_status
 try:
     status = get_ocr_status()
-    print(f"  Test 7 (status): {status} ✅")
+    print(f"  Test 6 (status): {status} ✅")
 except Exception as e:
-    print(f"  Test 7: ❌ ({str(e)[:60]})")
+    print(f"  Test 6: ❌ ({str(e)[:60]})")
 
 print()
 print("═" * 60)
 print("  ✅ Cell 7 সফল — Cell 8 চালানো যাবে (Inpainting)")
 print("═" * 60)
 
-log_event("Cell 7: OCR Engine ready (Baidu + Qwen VL)")
+log_event("Cell 7: OCR Engine ready (Qwen VL only)")

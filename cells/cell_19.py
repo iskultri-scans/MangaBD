@@ -46,8 +46,8 @@ marker_regions = 0
 bangla_regions = 0
 english_remaining = 0
 
-# OCR engine breakdown (V11: baidu/qwen vs easyocr/tesseract)
-ocr_baidu = 0
+# OCR engine breakdown (V11: Qwen VL)
+# Baidu removed — only Qwen VL
 ocr_qwen = 0
 ocr_skipped = 0
 ocr_failed = 0
@@ -85,11 +85,9 @@ if translation_df is not None and len(translation_df) > 0:
         else:
             empty_regions += 1
 
-        # OCR method (V11: baidu/qwen)
+        # OCR method (V11: Qwen VL)
         method = str(row.get('ocr_engine', '')).strip().lower()
-        if method == 'baidu':
-            ocr_baidu += 1
-        elif method == 'qwen':
+        if method == 'qwen':
             ocr_qwen += 1
         elif method == 'none':
             ocr_failed += 1
@@ -195,8 +193,7 @@ if region_types:
 print("  ─────────────────────────────────────────")
 print("  🔍 OCR Engine Breakdown (V11)")
 print("  ─────────────────────────────────────────")
-print(f"  Baidu (primary) : {ocr_baidu}")
-print(f"  Qwen VL (backup): {ocr_qwen}")
+print(f"  Qwen VL (primary): {ocr_qwen}")
 print(f"  Failed          : {ocr_failed}")
 print(f"  Skipped         : {ocr_skipped}")
 if ocr_fallback > 0:
@@ -241,8 +238,7 @@ print("  ───────────────────────�
 print("  🤖 Models Loaded")
 print("  ─────────────────────────────────────────")
 print(f"  CTD (Detector)    : {'✅' if ctd_detector is not None else '❌'}")
-print(f"  Baidu OCR         : {'✅' if baidu_ocr is not None else '❌'}")
-print(f"  Qwen 2.5 VL       : {'✅' if qwen_vl_ocr is not None else '❌'}")
+print(f"  Qwen VL OCR       : {'✅' if qwen_vl_ocr is not None else '❌'}")
 print(f"  LaMa Large        : {'✅' if lama_inpainter is not None else '❌'}")
 print(f"  NLLB              : {'✅' if nllb_model is not None else '❌ (not loaded)'}")
 print()
@@ -293,7 +289,6 @@ with open(log_path, 'w', encoding='utf-8') as f:
     f.write(f"  Bengali valid: {bangla_regions}\n\n")
 
     f.write("OCR engines:\n")
-    f.write(f"  Baidu: {ocr_baidu}\n")
     f.write(f"  Qwen: {ocr_qwen}\n")
     f.write(f"  Failed: {ocr_failed}\n\n")
 

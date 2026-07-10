@@ -21,10 +21,8 @@ print()
 
 # ── Status info ──
 ocr_status = get_ocr_status() if 'get_ocr_status' in globals() else {
-    'current': CONFIG.get('ocr_engine', 'baidu'),
-    'baidu_loaded': baidu_ocr is not None,
+    'current': CONFIG.get('ocr_engine', 'qwen'),
     'qwen_loaded': qwen_vl_ocr is not None,
-    'fallback_enabled': True,
 }
 
 trans_status = get_translator_status() if 'get_translator_status' in globals() else {
@@ -460,7 +458,6 @@ DASHBOARD_HTML = """
         <label>OCR Engine</label>
         <div>
           <span class="badge __OCR_BADGE__">__OCR_CURRENT__</span>
-          <span class="badge badge-success">Baidu: __OCR_BAIDU__</span>
           <span class="badge badge-success">Qwen: __OCR_QWEN__</span>
         </div>
       </div>
@@ -484,8 +481,7 @@ DASHBOARD_HTML = """
       <div class="control-group">
         <label>OCR Engine</label>
         <select id="ocr-engine-select">
-          <option value="baidu" __OCR_BAIDU_SELECTED__>📖 Baidu (Primary)</option>
-          <option value="qwen" __OCR_QWEN_SELECTED__>🤖 Qwen 2.5 VL (Backup)</option>
+          <option value="qwen" __OCR_QWEN_SELECTED__>🤖 Qwen 2.5 VL (Primary)</option>
         </select>
       </div>
       <div class="control-group">
@@ -737,14 +733,13 @@ else:
     grade = "🔴 Poor"
 
 # OCR badge
-ocr_badge_class = "badge-success" if (ocr_status['baidu_loaded'] or ocr_status['qwen_loaded']) else "badge-danger"
+ocr_badge_class = "badge-success" if ocr_status['qwen_loaded'] else "badge-danger"
 
 # Translator badges
 def badge_class(condition):
     return "badge-success" if condition else "badge-warning"
 
 # Selected options
-ocr_baidu_sel = "selected" if CONFIG['ocr_engine'] == 'baidu' else ""
 ocr_qwen_sel = "selected" if CONFIG['ocr_engine'] == 'qwen' else ""
 trans_manual_sel = "selected" if CONFIG['translator_engine'] == 'manual' else ""
 trans_gemini_sel = "selected" if CONFIG['translator_engine'] == 'gemini' else ""
@@ -765,7 +760,6 @@ replacements = {
     '__QUALITY_GRADE__': grade,
     '__OCR_BADGE__': ocr_badge_class,
     '__OCR_CURRENT__': ocr_status['current'].upper(),
-    '__OCR_BAIDU__': '✅' if ocr_status['baidu_loaded'] else '❌',
     '__OCR_QWEN__': '✅' if ocr_status['qwen_loaded'] else '❌',
     '__TRANS_BADGE__': badge_class(trans_status['current'] != 'manual'),
     '__TRANS_CURRENT__': trans_status['current'].upper(),
@@ -775,7 +769,6 @@ replacements = {
     '__TRANS_OPENAI__': '✅' if trans_status['openai_key_set'] else '❌',
     '__TRANS_NLLB_BADGE__': badge_class(trans_status['nllb_loaded']),
     '__TRANS_NLLB__': '✅' if trans_status['nllb_loaded'] else '❌',
-    '__OCR_BAIDU_SELECTED__': ocr_baidu_sel,
     '__OCR_QWEN_SELECTED__': ocr_qwen_sel,
     '__TRANS_MANUAL_SELECTED__': trans_manual_sel,
     '__TRANS_GEMINI_SELECTED__': trans_gemini_sel,

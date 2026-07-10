@@ -64,7 +64,7 @@ DIRS = {
     'root': DRIVE_DIR,
     'models': f'{DRIVE_DIR}/models',
     'models_ctd': f'{DRIVE_DIR}/models/ctd',
-    'models_baidu': f'{DRIVE_DIR}/models/baidu_ocr',
+    # Baidu removed — Qwen VL is the only OCR engine
     'models_qwen': f'{DRIVE_DIR}/models/qwen_vl',
     'models_lama': f'{DRIVE_DIR}/models/lama_large',
     'models_nllb': f'{DRIVE_DIR}/models/nllb',
@@ -180,7 +180,7 @@ CONFIG = {
     'lama_model_path': f"{DIRS['models_lama']}/inpainting_lama_mpe.ckpt",
 
     # OCR engine selection
-    'ocr_engine': 'baidu',          # 'baidu' | 'qwen'
+    'ocr_engine': 'qwen',          # Qwen VL is the only OCR engine
     'translator_engine': 'manual',  # 'manual' | 'gemini' | 'chatgpt' | 'nllb'
 
     # API keys (set via os.environ or widgets later)
@@ -306,7 +306,7 @@ CHECKPOINT = {
 
 # Model holders (populated in Cell 3)
 ctd_detector = None           # ComicTextDetector instance
-baidu_ocr = None              # Baidu pipeline
+# Baidu OCR removed — Qwen VL is the only OCR engine
 qwen_vl_ocr = None            # Qwen 2.5 VL pipeline
 lama_inpainter = None         # LamaLargeInpainter instance
 nllb_translator = None        # NLLB translator instance
@@ -320,7 +320,7 @@ quality_warnings = []         # list of warning dicts
 quality_reports = {}          # {filename: list of issue dicts}
 
 # Region tracking
-ocr_methods_used = {}         # {'baidu': N, 'qwen': M, 'failed': K}
+ocr_methods_used = {}         # {'qwen': N, 'failed': K}
 
 # Log helper
 def log_event(message, level='INFO'):
