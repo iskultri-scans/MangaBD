@@ -388,23 +388,19 @@ def detect_text_regions(image_np, detector=None, return_mask=False):
 
 
 def _refine_mask_zyddnys(image_np, regions):
-    """zyddnys এর mask_refinement.dispatch() ব্যবহার করে pixel-perfect mask।
+    """CTD এর raw pixel mask ব্যবহার করে pixel-level text mask তৈরি করো।
 
-    এটা zyddnys/manga-image-translator এর actual pipeline —
-    CTD এর raw mask কে DenseCRF দিয়ে refine করে।
+    এটা zyddnys এর approach — CTD নিজেই pixel-level mask দেয়।
+    আমরা সেই mask কে cleanup করি (morphological operations দিয়ে)।
+    DenseCRF (pydensecrf) দরকার নেই — CTD এর raw mask-ই যথেষ্ট ভালো।
 
-    Returns: numpy (H, W) uint8 — refined pixel-level text mask, or None
+    Returns: numpy (H, W) uint8 — pixel-level text mask, or None
     """
     try:
-        from manga_translator.mask_refinement import dispatch as refine_dispatch
-
-        # CTD থেকে raw pixel mask নাও (এটাই আসল pixel-level mask!)
-        # CTD detect এ আমরা refined_mask পাই — সেটাই raw mask হিসেবে কাজ করবে
         if ctd_detector is None:
             return None
 
-        # CTD detect করে raw mask পাওয়া যায়
-        # আমরা চাই pixel-level mask, তাই আলাদাভাবে CTD detect চালাব
+        # CTD detect → raw pixel-level mask
         textlines_raw, raw_mask, _ = _run_async(ctd_detector.detect(
             image_np,
             CONFIG['detection_size'],
@@ -417,32 +413,54 @@ def _refine_mask_zyddnys(image_np, regions):
         if raw_mask is None or np.sum(raw_mask > 0) == 0:
             return None
 
-        # textline_merge দিয়ে text lines গুলোকে regions এ group করো
-        from manga_translator.textline_merge import dispatch as merge_dispatch
-        img_h, img_w = image_np.shape[:2]
-        text_blocks = _run_async(merge_dispatch(textlines_raw, img_w, img_h, verbose=False))
+        # ── Pixel mask cleanup (zyddnys approach, কিন্তু pydensecrf ছাড়া) ──
+        # 1. Binary threshold
+        mask = (raw_mask > 127).astype(np.uint8) * 255
 
-        if not text_blocks:
-            return None
+        # 2. Morphological close (fill small holes in text)
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close, iterations=1)
 
-        # zyddnys এর mask_refinement — pixel-perfect mask তৈরি করে
-        # এটা DenseCRF ব্যবহার করে text pixel গুলোকে precise করে
-        refined = _run_async(refine_dispatch(
-            text_blocks,
-            image_np,
-            raw_mask,
-            'fit_text',  # method: fit_text (precise) বা fill (bounding box)
-            0,           # dilation_offset
-            0,           # ignore_bubble
-            False,       # verbose
-            3,           # kernel_size
-        ))
+        # 3. Remove small noise (connected components < 9px)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+        cleaned = np.zeros_like(mask)
+        for i in range(1, num_labels):
+            if stats[i, cv2.CC_STAT_AREA] >= 9:
+                cleaned[labels == i] = 255
+        mask = cleaned
 
-        if refined is not None and np.sum(refined > 0) > 0:
-            return refined
+        # 4. Adaptive dilation based on textline font size
+        # (zyddnys: dilate_size = max((text_size * 0.3) // 2 * 2 + 1, 3))
+        if textlines_raw:
+            font_sizes = []
+            for tl in textlines_raw:
+                if hasattr(tl, 'font_size'):
+                    font_sizes.append(tl.font_size)
+                elif hasattr(tl, 'pts'):
+                    pts = tl.pts
+                    h = np.max(pts[:, 1]) - np.min(pts[:, 1])
+                    font_sizes.append(h)
+            if font_sizes:
+                avg_font = np.median(font_sizes)
+                dilate_size = max((int(avg_font * 0.3) // 2) * 2 + 1, 3)
+            else:
+                dilate_size = 5
+        else:
+            dilate_size = 5
+
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                                   (dilate_size, dilate_size))
+        mask = cv2.dilate(mask, kernel_dilate, iterations=1)
+
+        # 5. Final small kernel dilation (smooth edges)
+        kernel_final = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.dilate(mask, kernel_final, iterations=1)
+
+        if np.sum(mask > 0) > 0:
+            return mask
         return None
     except Exception as e:
-        log_event(f"zyddnys mask refinement failed: {str(e)[:60]}", 'WARN')
+        log_event(f"Pixel mask creation failed: {str(e)[:60]}", 'WARN')
         return None
 
 
