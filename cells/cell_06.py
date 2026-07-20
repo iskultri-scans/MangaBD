@@ -429,32 +429,12 @@ def _refine_mask_zyddnys(image_np, regions):
                 cleaned[labels == i] = 255
         mask = cleaned
 
-        # 4. Adaptive dilation based on textline font size
-        # (zyddnys: dilate_size = max((text_size * 0.3) // 2 * 2 + 1, 3))
-        if textlines_raw:
-            font_sizes = []
-            for tl in textlines_raw:
-                if hasattr(tl, 'font_size'):
-                    font_sizes.append(tl.font_size)
-                elif hasattr(tl, 'pts'):
-                    pts = tl.pts
-                    h = np.max(pts[:, 1]) - np.min(pts[:, 1])
-                    font_sizes.append(h)
-            if font_sizes:
-                avg_font = np.median(font_sizes)
-                dilate_size = max((int(avg_font * 0.3) // 2) * 2 + 1, 3)
-            else:
-                dilate_size = 5
-        else:
-            dilate_size = 5
-
-        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
-                                                   (dilate_size, dilate_size))
-        mask = cv2.dilate(mask, kernel_dilate, iterations=1)
-
-        # 5. Final small kernel dilation (smooth edges)
-        kernel_final = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.dilate(mask, kernel_final, iterations=1)
+        # 4. NO dilation — pixel level mask only
+        # আগে dilation দিতাম, সেটা bubble border ও character face নষ্ট করতো
+        # এখন শুধু text pixel cover হবে, চারপাশে কিছু নষ্ট হবে না
+        # শুধু 1px morphological close (holes ভরাট করতে, কোনো dilation নয়)
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close, iterations=1)
 
         if np.sum(mask > 0) > 0:
             return mask

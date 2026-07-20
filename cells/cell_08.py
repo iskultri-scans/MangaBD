@@ -107,9 +107,9 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         mask = cv2.resize(mask, (image_np.shape[1], image_np.shape[0]),
                           interpolation=cv2.INTER_NEAREST)
 
-    # Clean and dilate mask
+    # Clean mask — NO dilation (pixel level only, bubble border safe)
     clean = clean_mask(mask)
-    dilated = dilate_mask(clean, adaptive=True)
+    dilated = clean  # use clean mask directly, no dilation
 
     # Try LaMa Large first
     if use_lama and lama_inpainter is not None:

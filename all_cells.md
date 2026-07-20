@@ -522,7 +522,7 @@ print("═" * 60)
 <a id='cell-02'></a>
 ## 🧩 Cell 02 — 🔧 CELL 2 — Import, Config & Global Setup (V11)
 **Source file:** `cell_02_config.py`
-**Length:** 13728 chars / 443 lines
+**Length:** 13706 chars / 443 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -733,7 +733,7 @@ CONFIG = {
     'font_size_min': 12,
     'font_size_max': 48,
     'font_size_default': 24,
-    'text_stroke_width': 1,                # reduced from 2 → 1 (Bengali conjuncts পরিষ্কার রাখতে)
+    'text_stroke_width': 0,                # NO stroke — Bengali পাতলা রাখতে
     'text_stroke_color': (0, 0, 0),       # black border
     'text_color_bubble': (0, 0, 0),       # black text on white bubble
     'text_color_narrator': (0, 0, 0),
@@ -2066,7 +2066,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: RT-DETR-v2 PRIMARY)
 **Source file:** `cell_06_detection.py`
-**Length:** 24688 chars / 676 lines
+**Length:** 23972 chars / 656 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2500,32 +2500,12 @@ def _refine_mask_zyddnys(image_np, regions):
                 cleaned[labels == i] = 255
         mask = cleaned
 
-        # 4. Adaptive dilation based on textline font size
-        # (zyddnys: dilate_size = max((text_size * 0.3) // 2 * 2 + 1, 3))
-        if textlines_raw:
-            font_sizes = []
-            for tl in textlines_raw:
-                if hasattr(tl, 'font_size'):
-                    font_sizes.append(tl.font_size)
-                elif hasattr(tl, 'pts'):
-                    pts = tl.pts
-                    h = np.max(pts[:, 1]) - np.min(pts[:, 1])
-                    font_sizes.append(h)
-            if font_sizes:
-                avg_font = np.median(font_sizes)
-                dilate_size = max((int(avg_font * 0.3) // 2) * 2 + 1, 3)
-            else:
-                dilate_size = 5
-        else:
-            dilate_size = 5
-
-        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
-                                                   (dilate_size, dilate_size))
-        mask = cv2.dilate(mask, kernel_dilate, iterations=1)
-
-        # 5. Final small kernel dilation (smooth edges)
-        kernel_final = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.dilate(mask, kernel_final, iterations=1)
+        # 4. NO dilation — pixel level mask only
+        # আগে dilation দিতাম, সেটা bubble border ও character face নষ্ট করতো
+        # এখন শুধু text pixel cover হবে, চারপাশে কিছু নষ্ট হবে না
+        # শুধু 1px morphological close (holes ভরাট করতে, কোনো dilation নয়)
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close, iterations=1)
 
         if np.sum(mask > 0) > 0:
             return mask
@@ -2994,7 +2974,7 @@ log_event("Cell 7: OCR Engine ready (Qwen VL only)")
 <a id='cell-08'></a>
 ## 🧩 Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)
 **Source file:** `cell_08_inpainting.py`
-**Length:** 12439 chars / 338 lines
+**Length:** 12493 chars / 338 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3106,9 +3086,9 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         mask = cv2.resize(mask, (image_np.shape[1], image_np.shape[0]),
                           interpolation=cv2.INTER_NEAREST)
 
-    # Clean and dilate mask
+    # Clean mask — NO dilation (pixel level only, bubble border safe)
     clean = clean_mask(mask)
-    dilated = dilate_mask(clean, adaptive=True)
+    dilated = clean  # use clean mask directly, no dilation
 
     # Try LaMa Large first
     if use_lama and lama_inpainter is not None:
