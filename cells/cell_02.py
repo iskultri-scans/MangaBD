@@ -206,7 +206,7 @@ CONFIG = {
     'font_size_min': 12,
     'font_size_max': 48,
     'font_size_default': 24,
-    'text_stroke_width': 2,
+    'text_stroke_width': 1,                # reduced from 2 → 1 (Bengali conjuncts পরিষ্কার রাখতে)
     'text_stroke_color': (0, 0, 0),       # black border
     'text_color_bubble': (0, 0, 0),       # black text on white bubble
     'text_color_narrator': (0, 0, 0),

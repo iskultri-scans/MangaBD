@@ -522,7 +522,7 @@ print("═" * 60)
 <a id='cell-02'></a>
 ## 🧩 Cell 02 — 🔧 CELL 2 — Import, Config & Global Setup (V11)
 **Source file:** `cell_02_config.py`
-**Length:** 13657 chars / 443 lines
+**Length:** 13728 chars / 443 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -733,7 +733,7 @@ CONFIG = {
     'font_size_min': 12,
     'font_size_max': 48,
     'font_size_default': 24,
-    'text_stroke_width': 2,
+    'text_stroke_width': 1,                # reduced from 2 → 1 (Bengali conjuncts পরিষ্কার রাখতে)
     'text_stroke_color': (0, 0, 0),       # black border
     'text_color_bubble': (0, 0, 0),       # black text on white bubble
     'text_color_narrator': (0, 0, 0),
@@ -2066,7 +2066,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: RT-DETR-v2 PRIMARY)
 **Source file:** `cell_06_detection.py`
-**Length:** 24688 chars / 676 lines
+**Length:** 24773 chars / 676 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2501,7 +2501,7 @@ def _refine_mask_zyddnys(image_np, regions):
         mask = cleaned
 
         # 4. Adaptive dilation based on textline font size
-        # (zyddnys: dilate_size = max((text_size * 0.3) // 2 * 2 + 1, 3))
+        # REDUCED: 0.3 → 0.15 (আগে বেশি dilation ছিল, character face blur হতো)
         if textlines_raw:
             font_sizes = []
             for tl in textlines_raw:
@@ -2513,19 +2513,19 @@ def _refine_mask_zyddnys(image_np, regions):
                     font_sizes.append(h)
             if font_sizes:
                 avg_font = np.median(font_sizes)
-                dilate_size = max((int(avg_font * 0.3) // 2) * 2 + 1, 3)
+                # কম dilation — শুধু text stroke cover করবে, চারপাশের detail নষ্ট হবে না
+                dilate_size = max((int(avg_font * 0.15) // 2) * 2 + 1, 3)
             else:
-                dilate_size = 5
+                dilate_size = 3
         else:
-            dilate_size = 5
+            dilate_size = 3
 
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                                    (dilate_size, dilate_size))
         mask = cv2.dilate(mask, kernel_dilate, iterations=1)
 
-        # 5. Final small kernel dilation (smooth edges)
-        kernel_final = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.dilate(mask, kernel_final, iterations=1)
+        # 5. Final smooth — removed extra dilation (was causing blur on character faces)
+        # শুধু 1px erosion + dilation = morphological close (smooth edges without expanding)
 
         if np.sum(mask > 0) > 0:
             return mask
@@ -4335,7 +4335,7 @@ else:
 <a id='cell-13'></a>
 ## 🧩 Cell 13 — 📤 CELL 13 — Translation (V11: Manual + Gemini + ChatGPT + NLLB)
 **Source file:** `cell_13_translation.py`
-**Length:** 18684 chars / 569 lines
+**Length:** 19450 chars / 585 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -4544,24 +4544,28 @@ def load_nllb():
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
         NLLB_MODEL_ID = 'facebook/nllb-200-distilled-600M'
 
-        # Derive NLLB cache dir from CONFIG['models_dir']
-        # (Cell 2-এ CONFIG['models_nllb'] key নেই — তাই এখানে derive করছি)
         nllb_cache_dir = f"{CONFIG['models_dir']}/nllb"
         os.makedirs(nllb_cache_dir, exist_ok=True)
 
         print(f"  📥 Loading NLLB-200 (first time ~1.5GB download)...")
         nllb_tokenizer = AutoTokenizer.from_pretrained(
-            NLLB_MODEL_ID, cache_dir=nllb_cache_dir
+            NLLB_MODEL_ID, cache_dir=nllb_cache_dir,
+            src_lang='eng_Latn',
+            tgt_lang='ben_Beng',
         )
+        # Use float32 for NLLB (float16 can cause issues with seq2seq models)
         nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
             NLLB_MODEL_ID, cache_dir=nllb_cache_dir,
-            torch_dtype=DEVICE_TORCH_DTYPE,
-        ).to(DEVICE).eval()
-        # NOTE: explicit .to(DEVICE) — device_map='auto' can break
-        print(f"  ✅ NLLB loaded")
+        )
+        # Clear GPU cache before loading (Qwen VL already using GPU)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        nllb_model = nllb_model.to(DEVICE).eval()
+        print(f"  ✅ NLLB loaded on {DEVICE}")
         return True
     except Exception as e:
         log_event(f"NLLB load failed: {str(e)[:80]}", level='WARN')
+        print(f"  ❌ NLLB load failed: {str(e)[:100]}")
         return False
 
 
@@ -4572,22 +4576,34 @@ def translate_with_nllb(text, target_lang='ben_Beng'):
             return ''
 
     try:
-        # NLLB uses language codes like 'eng_Latn', 'ben_Beng'
+        # NLLB-200 uses language codes like 'eng_Latn', 'ben_Beng'
+        # Tokenize with source language
         inputs = nllb_tokenizer(text, return_tensors='pt',
-                                max_length=512, truncation=True)
+                                max_length=512, truncation=True,
+                                src_lang='eng_Latn')
         if DEVICE == 'cuda':
             inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
-        # Forcing target language
-        target_lang_id = nllb_tokenizer.convert_tokens_to_ids(target_lang)
-        if target_lang_id == nllb_tokenizer.unk_token_id:
-            # Try alternate code
-            target_lang_id = nllb_tokenizer.convert_tokens_to_ids('ben_Beng')
+        # Get the forced BOS token for Bengali
+        # NLLB-200 tokenizer has special tokens for each language
+        forced_bos_id = nllb_tokenizer.convert_tokens_to_ids('ben_Beng')
+
+        # If convert_tokens_to_ids doesn't work, try lang_code_to_id
+        if forced_bos_id == nllb_tokenizer.unk_token_id:
+            # Try the id2label / label2id approach
+            if hasattr(nllb_tokenizer, 'id2lang'):
+                for lid, lang in nllb_tokenizer.id2lang.items():
+                    if 'ben' in lang.lower():
+                        forced_bos_id = lid
+                        break
+            # Last resort: hardcoded token id for ben_Beng in NLLB-200
+            if forced_bos_id == nllb_tokenizer.unk_token_id:
+                forced_bos_id = 100362  # ben_Beng token id in NLLB-200
 
         with torch.no_grad():
             output = nllb_model.generate(
                 **inputs,
-                forced_bos_token_id=target_lang_id,
+                forced_bos_token_id=forced_bos_id,
                 max_length=512,
                 num_beams=4,
             )

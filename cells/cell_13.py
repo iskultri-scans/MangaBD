@@ -204,24 +204,28 @@ def load_nllb():
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
         NLLB_MODEL_ID = 'facebook/nllb-200-distilled-600M'
 
-        # Derive NLLB cache dir from CONFIG['models_dir']
-        # (Cell 2-এ CONFIG['models_nllb'] key নেই — তাই এখানে derive করছি)
         nllb_cache_dir = f"{CONFIG['models_dir']}/nllb"
         os.makedirs(nllb_cache_dir, exist_ok=True)
 
         print(f"  📥 Loading NLLB-200 (first time ~1.5GB download)...")
         nllb_tokenizer = AutoTokenizer.from_pretrained(
-            NLLB_MODEL_ID, cache_dir=nllb_cache_dir
+            NLLB_MODEL_ID, cache_dir=nllb_cache_dir,
+            src_lang='eng_Latn',
+            tgt_lang='ben_Beng',
         )
+        # Use float32 for NLLB (float16 can cause issues with seq2seq models)
         nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
             NLLB_MODEL_ID, cache_dir=nllb_cache_dir,
-            torch_dtype=DEVICE_TORCH_DTYPE,
-        ).to(DEVICE).eval()
-        # NOTE: explicit .to(DEVICE) — device_map='auto' can break
-        print(f"  ✅ NLLB loaded")
+        )
+        # Clear GPU cache before loading (Qwen VL already using GPU)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        nllb_model = nllb_model.to(DEVICE).eval()
+        print(f"  ✅ NLLB loaded on {DEVICE}")
         return True
     except Exception as e:
         log_event(f"NLLB load failed: {str(e)[:80]}", level='WARN')
+        print(f"  ❌ NLLB load failed: {str(e)[:100]}")
         return False
 
 
@@ -232,22 +236,34 @@ def translate_with_nllb(text, target_lang='ben_Beng'):
             return ''
 
     try:
-        # NLLB uses language codes like 'eng_Latn', 'ben_Beng'
+        # NLLB-200 uses language codes like 'eng_Latn', 'ben_Beng'
+        # Tokenize with source language
         inputs = nllb_tokenizer(text, return_tensors='pt',
-                                max_length=512, truncation=True)
+                                max_length=512, truncation=True,
+                                src_lang='eng_Latn')
         if DEVICE == 'cuda':
             inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
-        # Forcing target language
-        target_lang_id = nllb_tokenizer.convert_tokens_to_ids(target_lang)
-        if target_lang_id == nllb_tokenizer.unk_token_id:
-            # Try alternate code
-            target_lang_id = nllb_tokenizer.convert_tokens_to_ids('ben_Beng')
+        # Get the forced BOS token for Bengali
+        # NLLB-200 tokenizer has special tokens for each language
+        forced_bos_id = nllb_tokenizer.convert_tokens_to_ids('ben_Beng')
+
+        # If convert_tokens_to_ids doesn't work, try lang_code_to_id
+        if forced_bos_id == nllb_tokenizer.unk_token_id:
+            # Try the id2label / label2id approach
+            if hasattr(nllb_tokenizer, 'id2lang'):
+                for lid, lang in nllb_tokenizer.id2lang.items():
+                    if 'ben' in lang.lower():
+                        forced_bos_id = lid
+                        break
+            # Last resort: hardcoded token id for ben_Beng in NLLB-200
+            if forced_bos_id == nllb_tokenizer.unk_token_id:
+                forced_bos_id = 100362  # ben_Beng token id in NLLB-200
 
         with torch.no_grad():
             output = nllb_model.generate(
                 **inputs,
-                forced_bos_token_id=target_lang_id,
+                forced_bos_token_id=forced_bos_id,
                 max_length=512,
                 num_beams=4,
             )
