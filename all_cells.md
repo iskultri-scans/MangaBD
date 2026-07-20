@@ -2066,7 +2066,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: RT-DETR-v2 PRIMARY)
 **Source file:** `cell_06_detection.py`
-**Length:** 24773 chars / 676 lines
+**Length:** 24688 chars / 676 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2501,7 +2501,7 @@ def _refine_mask_zyddnys(image_np, regions):
         mask = cleaned
 
         # 4. Adaptive dilation based on textline font size
-        # REDUCED: 0.3 → 0.15 (আগে বেশি dilation ছিল, character face blur হতো)
+        # (zyddnys: dilate_size = max((text_size * 0.3) // 2 * 2 + 1, 3))
         if textlines_raw:
             font_sizes = []
             for tl in textlines_raw:
@@ -2513,19 +2513,19 @@ def _refine_mask_zyddnys(image_np, regions):
                     font_sizes.append(h)
             if font_sizes:
                 avg_font = np.median(font_sizes)
-                # কম dilation — শুধু text stroke cover করবে, চারপাশের detail নষ্ট হবে না
-                dilate_size = max((int(avg_font * 0.15) // 2) * 2 + 1, 3)
+                dilate_size = max((int(avg_font * 0.3) // 2) * 2 + 1, 3)
             else:
-                dilate_size = 3
+                dilate_size = 5
         else:
-            dilate_size = 3
+            dilate_size = 5
 
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                                    (dilate_size, dilate_size))
         mask = cv2.dilate(mask, kernel_dilate, iterations=1)
 
-        # 5. Final smooth — removed extra dilation (was causing blur on character faces)
-        # শুধু 1px erosion + dilation = morphological close (smooth edges without expanding)
+        # 5. Final small kernel dilation (smooth edges)
+        kernel_final = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.dilate(mask, kernel_final, iterations=1)
 
         if np.sum(mask > 0) > 0:
             return mask
@@ -5123,7 +5123,7 @@ else:
 <a id='cell-15'></a>
 ## 🧩 Cell 15 — ✍️ CELL 15 — Bengali Text Rendering (V11: Pillow + libraqm)
 **Source file:** `cell_15_rendering.py`
-**Length:** 10783 chars / 281 lines
+**Length:** 10779 chars / 281 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -5238,8 +5238,8 @@ else:
             # Determine bold
             bold = (rtype == 'sfx' or rtype == 'narrator')
 
-            # Determine stroke width based on region type
-            stroke = 2 if rtype in ('bubble', 'thought') else 3
+            # Determine stroke width from CONFIG (Cell 2 তে set করা)
+            stroke = CONFIG['text_stroke_width']
 
             # Render
             try:

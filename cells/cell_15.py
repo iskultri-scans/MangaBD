@@ -110,8 +110,8 @@ else:
             # Determine bold
             bold = (rtype == 'sfx' or rtype == 'narrator')
 
-            # Determine stroke width based on region type
-            stroke = 2 if rtype in ('bubble', 'thought') else 3
+            # Determine stroke width from CONFIG (Cell 2 তে set করা)
+            stroke = CONFIG['text_stroke_width']
 
             # Render
             try:

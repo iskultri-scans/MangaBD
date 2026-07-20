@@ -430,7 +430,7 @@ def _refine_mask_zyddnys(image_np, regions):
         mask = cleaned
 
         # 4. Adaptive dilation based on textline font size
-        # REDUCED: 0.3 → 0.15 (আগে বেশি dilation ছিল, character face blur হতো)
+        # (zyddnys: dilate_size = max((text_size * 0.3) // 2 * 2 + 1, 3))
         if textlines_raw:
             font_sizes = []
             for tl in textlines_raw:
@@ -442,19 +442,19 @@ def _refine_mask_zyddnys(image_np, regions):
                     font_sizes.append(h)
             if font_sizes:
                 avg_font = np.median(font_sizes)
-                # কম dilation — শুধু text stroke cover করবে, চারপাশের detail নষ্ট হবে না
-                dilate_size = max((int(avg_font * 0.15) // 2) * 2 + 1, 3)
+                dilate_size = max((int(avg_font * 0.3) // 2) * 2 + 1, 3)
             else:
-                dilate_size = 3
+                dilate_size = 5
         else:
-            dilate_size = 3
+            dilate_size = 5
 
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                                    (dilate_size, dilate_size))
         mask = cv2.dilate(mask, kernel_dilate, iterations=1)
 
-        # 5. Final smooth — removed extra dilation (was causing blur on character faces)
-        # শুধু 1px erosion + dilation = morphological close (smooth edges without expanding)
+        # 5. Final small kernel dilation (smooth edges)
+        kernel_final = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.dilate(mask, kernel_final, iterations=1)
 
         if np.sum(mask > 0) > 0:
             return mask
