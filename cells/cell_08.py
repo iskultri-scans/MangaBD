@@ -107,9 +107,9 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         mask = cv2.resize(mask, (image_np.shape[1], image_np.shape[0]),
                           interpolation=cv2.INTER_NEAREST)
 
-    # Clean mask — NO dilation (pixel level only, bubble border safe)
+    # Clean and dilate mask (আগের মতো — ভালো কাজ করতো)
     clean = clean_mask(mask)
-    dilated = clean  # use clean mask directly, no dilation
+    dilated = dilate_mask(clean, adaptive=True)
 
     # Try LaMa Large first
     if use_lama and lama_inpainter is not None:
@@ -159,43 +159,24 @@ def inpaint_full_page(image_np, regions, detector=None):
 
     h, w = image_np.shape[:2]
 
-    # ── V11: zyddnys mask_refinement (pixel-perfect!) ──────
-    # zyddnys এর mask_refinement.dispatch() ব্যবহার করে pixel-perfect mask
-    # এটা DenseCRF দিয়ে text pixel গুলোর boundary একদম precise করে
+    # ── V11: Pixel-level mask via CTD (NO ONNX — too slow on CPU) ──
+    # CTD নিজেই pixel-level mask দেয় (GPU তে চলে, দ্রুত)
+    # ONNX model বাদ — CPU তে ধীর, ৫ মিনিট লাগতো
     full_mask = None
 
-    # Primary: zyddnys mask_refinement (best quality)
+    # Primary: CTD pixel mask (via _refine_mask_zyddnys)
     try:
-        # _refine_mask_zyddnys Cell 6 এ defined
         if '_refine_mask_zyddnys' in globals():
             refined_mask = _refine_mask_zyddnys(image_np, regions)
             if refined_mask is not None and np.sum(refined_mask > 0) > 0:
                 full_mask = refined_mask
-                print(f"    ✅ zyddnys refined mask: {np.sum(full_mask > 0):,} text pixels")
+                print(f"    ✅ CTD pixel mask: {np.sum(full_mask > 0):,} text pixels")
     except Exception as e:
-        log_event(f"zyddnys mask refinement failed: {str(e)[:50]}", 'WARN')
+        log_event(f"CTD pixel mask failed: {str(e)[:50]}", 'WARN')
 
-    # Fallback 1: ONNX pixel mask
+    # Fallback: bounding box mask (if CTD not available)
     if full_mask is None:
-        try:
-            # comic_detect_pixel_mask Cell 6 এ defined
-            pixel_mask = comic_detect_pixel_mask(image_np)
-            if pixel_mask is not None and np.sum(pixel_mask > 0) > 0:
-                # RT-DETR region দিয়ে filter করো
-                rtdetr_result = rtdetr_detect(image_np)
-                smart_mask = create_smart_text_mask(image_np, rtdetr_result, pixel_mask)
-                if smart_mask is not None and np.sum(smart_mask > 0) > 0:
-                    full_mask = smart_mask
-                    print(f"    ✅ ONNX pixel mask: {np.sum(full_mask > 0):,} text pixels")
-                else:
-                    full_mask = pixel_mask
-                    print(f"    ✅ Raw ONNX pixel mask: {np.sum(full_mask > 0):,} text pixels")
-        except Exception as e:
-            log_event(f"ONNX pixel mask failed: {str(e)[:50]}", 'WARN')
-
-    # Fallback 2: bounding box mask (least precise)
-    if full_mask is None:
-        print(f"    ⚠️ Using bounding box mask (less precise)")
+        print(f"    ⚠️ Using bounding box mask (CTD not available)")
         full_mask = np.zeros((h, w), dtype=np.uint8)
         for region in regions:
             try:
