@@ -116,11 +116,18 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         try:
             from manga_translator.inpainting.common import InpainterConfig
             cfg = InpainterConfig()
-            # Use positional args to avoid keyword conflicts with InpainterConfig fields
-            # Signature: inpaint(image, mask, config, inpainting_size=1024, verbose=False)
-            result = _run_async(lama_inpainter.inpaint(
-                image_np, dilated, cfg, inpainting_size, False,
-            ))
+            # Create fresh coroutine each time (avoid "already awaited" error)
+            # Use asyncio.ensure_future to create a new task
+            import asyncio
+            coro = lama_inpainter.inpaint(image_np, dilated, cfg, inpainting_size, False)
+            # Run it properly
+            try:
+                loop = asyncio.get_event_loop()
+                result = loop.run_until_complete(coro)
+            except RuntimeError:
+                # No running loop
+                result = asyncio.run(coro)
+
             if result is not None and result.size > 0:
                 # Ensure same size as input
                 if result.shape[:2] != image_np.shape[:2]:
