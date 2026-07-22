@@ -116,18 +116,24 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         try:
             from manga_translator.inpainting.common import InpainterConfig
             cfg = InpainterConfig()
-
-            # ── GPU memory management ──
-            # Qwen VL (6GB) + LaMa একসাথে GPU তে থাকে → OOM
-            # Solution: inference এর আগে cache clear, size কমানো
             import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
 
-            # Inpainting size কমানো (OOM এড়াতে)
-            # আগে 1024 ছিল, এখন 512 — অনেক কম memory লাগবে
-            effective_size = min(inpainting_size, 512)
+            # ── FULL QUALITY: Temporarily move Qwen VL to CPU ──
+            # Qwen VL (6GB) GPU তে থাকলে LaMa 1024px OOM করে
+            # Solution: Qwen কে CPU তে পাঠাও → LaMa full GPU তে চালাও → Qwen কে ফিরিয়ে আনো
+            _qwen_moved = False
+            if torch.cuda.is_available() and 'qwen_vl_ocr' in globals() and qwen_vl_ocr is not None:
+                try:
+                    if hasattr(qwen_vl_ocr, 'model') and qwen_vl_ocr.model is not None:
+                        qwen_vl_ocr.model = qwen_vl_ocr.model.cpu()
+                        _qwen_moved = True
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                except Exception:
+                    pass
+
+            # Full quality: 1024px (আগে 512 ছিল)
+            effective_size = inpainting_size  # full size, no reduction
 
             import asyncio
             import nest_asyncio
@@ -144,6 +150,14 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+            # Qwen VL কে আবার GPU তে ফিরিয়ে আনো
+            if _qwen_moved and 'qwen_vl_ocr' in globals() and qwen_vl_ocr is not None:
+                try:
+                    if hasattr(qwen_vl_ocr, 'model') and qwen_vl_ocr.model is not None:
+                        qwen_vl_ocr.model = qwen_vl_ocr.model.to(DEVICE)
+                except Exception:
+                    pass
+
             if result is not None and result.size > 0:
                 if result.shape[:2] != image_np.shape[:2]:
                     result = cv2.resize(result, (image_np.shape[1], image_np.shape[0]))
@@ -151,10 +165,16 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         except Exception as e:
             log_event(f"LaMa inpaint failed, falling back to OpenCV: {str(e)[:60]}",
                       level='WARN')
-            # Clear GPU cache on failure too
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            # Qwen কে ফিরিয়ে আনো (fail হলেও)
+            if _qwen_moved and 'qwen_vl_ocr' in globals() and qwen_vl_ocr is not None:
+                try:
+                    if hasattr(qwen_vl_ocr, 'model') and qwen_vl_ocr.model is not None:
+                        qwen_vl_ocr.model = qwen_vl_ocr.model.to(DEVICE)
+                except Exception:
+                    pass
 
     # Fallback: OpenCV TELEA
     return _opencv_inpaint(image_np, dilated)
