@@ -2994,7 +2994,7 @@ log_event("Cell 7: OCR Engine ready (Qwen VL only)")
 <a id='cell-08'></a>
 ## 🧩 Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)
 **Source file:** `cell_08_inpainting.py`
-**Length:** 11598 chars / 323 lines
+**Length:** 12213 chars / 341 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3116,18 +3116,32 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
             from manga_translator.inpainting.common import InpainterConfig
             cfg = InpainterConfig()
 
-            # LaMa এর inpaint() async function — fresh coroutine তৈরি করে চালাও
+            # ── GPU memory management ──
+            # Qwen VL (6GB) + LaMa একসাথে GPU তে থাকে → OOM
+            # Solution: inference এর আগে cache clear, size কমানো
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+
+            # Inpainting size কমানো (OOM এড়াতে)
+            # আগে 1024 ছিল, এখন 512 — অনেক কম memory লাগবে
+            effective_size = min(inpainting_size, 512)
+
             import asyncio
             import nest_asyncio
             nest_asyncio.apply()
 
             async def _run_lama():
                 return await lama_inpainter.inpaint(
-                    image_np, dilated, cfg, inpainting_size, False
+                    image_np, dilated, cfg, effective_size, False
                 )
 
-            # New event loop দিয়ে চালাও (পুরোনো loop cache এড়াতে)
             result = asyncio.run(_run_lama())
+
+            # GPU cache clear after inference
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             if result is not None and result.size > 0:
                 if result.shape[:2] != image_np.shape[:2]:
@@ -3136,6 +3150,10 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         except Exception as e:
             log_event(f"LaMa inpaint failed, falling back to OpenCV: {str(e)[:60]}",
                       level='WARN')
+            # Clear GPU cache on failure too
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     # Fallback: OpenCV TELEA
     return _opencv_inpaint(image_np, dilated)
