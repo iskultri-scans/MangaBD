@@ -2994,7 +2994,7 @@ log_event("Cell 7: OCR Engine ready (Qwen VL only)")
 <a id='cell-08'></a>
 ## 🧩 Cell 08 — ✂️ CELL 8 — Inpainting Engine (V11: LaMa Large + OpenCV fallback)
 **Source file:** `cell_08_inpainting.py`
-**Length:** 11697 chars / 322 lines
+**Length:** 11598 chars / 323 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3115,20 +3115,21 @@ def inpaint_region(image_np, mask, use_lama=True, inpainting_size=None):
         try:
             from manga_translator.inpainting.common import InpainterConfig
             cfg = InpainterConfig()
-            # Create fresh coroutine each time (avoid "already awaited" error)
-            # Use asyncio.ensure_future to create a new task
+
+            # LaMa এর inpaint() async function — fresh coroutine তৈরি করে চালাও
             import asyncio
-            coro = lama_inpainter.inpaint(image_np, dilated, cfg, inpainting_size, False)
-            # Run it properly
-            try:
-                loop = asyncio.get_event_loop()
-                result = loop.run_until_complete(coro)
-            except RuntimeError:
-                # No running loop
-                result = asyncio.run(coro)
+            import nest_asyncio
+            nest_asyncio.apply()
+
+            async def _run_lama():
+                return await lama_inpainter.inpaint(
+                    image_np, dilated, cfg, inpainting_size, False
+                )
+
+            # New event loop দিয়ে চালাও (পুরোনো loop cache এড়াতে)
+            result = asyncio.run(_run_lama())
 
             if result is not None and result.size > 0:
-                # Ensure same size as input
                 if result.shape[:2] != image_np.shape[:2]:
                     result = cv2.resize(result, (image_np.shape[1], image_np.shape[0]))
                 return result
