@@ -106,6 +106,9 @@ def fit_font_size(text, target_width, target_height, bold=False,
     Text-এর জন্য সেরা font size বের করো — যাতে target box-এ fit হয়।
     Algorithm: binary search on font size, with word wrapping per size.
     Returns: (best_size, lines, total_height)
+
+    V11 fix: যদি text min_size এও fit না হয়, তাহলে text কে ছোট করে নেওয়া হবে
+    (truncation) যাতে bubble এর বাইরে না যায়।
     """
     if not text:
         return CONFIG['font_size_default'], [], 0
@@ -115,13 +118,15 @@ def fit_font_size(text, target_width, target_height, bold=False,
     if max_size is None:
         max_size = CONFIG['font_size_max']
 
-    avail_w = target_width - 2 * padding
-    avail_h = target_height - 2 * padding
+    # Padding বাড়ানো — bubble border থেকে দূরে রাখতে
+    effective_padding = max(padding, min(target_width, target_height) // 12)
+    avail_w = target_width - 2 * effective_padding
+    avail_h = target_height - 2 * effective_padding
 
-    if avail_w <= 0 or avail_h <= 0:
+    if avail_w <= 10 or avail_h <= 10:
+        # খুব ছোট bubble — সবচেয়ে ছোট font দিয়ে চেষ্টা করো
         return min_size, [text], target_height
 
-    # Dummy draw for measurement
     dummy = Image.new('RGB', (1, 1))
     draw = ImageDraw.Draw(dummy)
 
@@ -129,15 +134,13 @@ def fit_font_size(text, target_width, target_height, bold=False,
     best_lines = [text]
     best_height = 0
 
-    # Binary search on font size
     lo, hi = min_size, max_size
     while lo <= hi:
         mid = (lo + hi) // 2
         font = get_font(mid, bold)
         lines = split_text_to_lines(text, font, draw, avail_w)
 
-        # Compute total height
-        line_h = mid * 1.3  # line height ~1.3x font size
+        line_h = mid * 1.3
         total_h = line_h * len(lines)
 
         if total_h <= avail_h and lines:
@@ -147,6 +150,26 @@ def fit_font_size(text, target_width, target_height, bold=False,
             lo = mid + 1
         else:
             hi = mid - 1
+
+    # ── V11 fix: যদি min_size এও fit না হয় ──
+    # text কে আরো ভাগ করো (ছোট ছোট line)
+    if best_height == 0 or best_height > avail_h:
+        font = get_font(min_size, bold)
+        lines = split_text_to_lines(text, font, draw, avail_w)
+        line_h = min_size * 1.3
+        total_h = line_h * len(lines)
+
+        # এখনও fit হচ্ছে না? text ছোট করো (truncation)
+        if total_h > avail_h and len(lines) > 0:
+            max_lines = max(1, int(avail_h / line_h))
+            lines = lines[:max_lines]
+            # শেষ line এ "..." যোগ করো
+            if len(lines) > 0 and max_lines < len(split_text_to_lines(text, font, draw, avail_w)):
+                lines[-1] = lines[-1][:len(lines[-1])//2] + '...'
+
+        best_size = min_size
+        best_lines = lines
+        best_height = line_h * len(lines)
 
     return best_size, best_lines, best_height
 
