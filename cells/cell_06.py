@@ -421,11 +421,13 @@ def _refine_mask_zyddnys(image_np, regions):
         kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close, iterations=1)
 
-        # 3. Remove small noise (connected components < 9px)
+        # 3. Remove very small noise ONLY (connected components < 4px)
+        # আগে >= 9 ছিল — সেটা ছোট text ও সরিয়ে দিতো!
+        # এখন >= 4 — শুধু single-pixel noise সরাবে, ছোট text রাখবে
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
         cleaned = np.zeros_like(mask)
         for i in range(1, num_labels):
-            if stats[i, cv2.CC_STAT_AREA] >= 9:
+            if stats[i, cv2.CC_STAT_AREA] >= 4:
                 cleaned[labels == i] = 255
         mask = cleaned
 

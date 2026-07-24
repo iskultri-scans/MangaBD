@@ -203,7 +203,7 @@ CONFIG = {
     'mask_dilate_radius': 6,
 
     # Rendering
-    'font_size_min': 12,
+    'font_size_min': 8,                 # ছোট করা (12 → 8) — ছোট bubble এ fit করতে
     'font_size_max': 48,
     'font_size_default': 24,
     'text_stroke_width': 0,                # NO stroke — Bengali পাতলা রাখতে

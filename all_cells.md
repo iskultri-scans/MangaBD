@@ -522,7 +522,7 @@ print("═" * 60)
 <a id='cell-02'></a>
 ## 🧩 Cell 02 — 🔧 CELL 2 — Import, Config & Global Setup (V11)
 **Source file:** `cell_02_config.py`
-**Length:** 13706 chars / 443 lines
+**Length:** 13764 chars / 443 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -730,7 +730,7 @@ CONFIG = {
     'mask_dilate_radius': 6,
 
     # Rendering
-    'font_size_min': 12,
+    'font_size_min': 8,                 # ছোট করা (12 → 8) — ছোট bubble এ fit করতে
     'font_size_max': 48,
     'font_size_default': 24,
     'text_stroke_width': 0,                # NO stroke — Bengali পাতলা রাখতে
@@ -2066,7 +2066,7 @@ log_event("Cell 5: Region Classification ready")
 <a id='cell-06'></a>
 ## 🧩 Cell 06 — 🔎 CELL 6 — Text Detection (V11: RT-DETR-v2 PRIMARY)
 **Source file:** `cell_06_detection.py`
-**Length:** 24683 chars / 676 lines
+**Length:** 24814 chars / 678 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -2492,11 +2492,13 @@ def _refine_mask_zyddnys(image_np, regions):
         kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close, iterations=1)
 
-        # 3. Remove small noise (connected components < 9px)
+        # 3. Remove very small noise ONLY (connected components < 4px)
+        # আগে >= 9 ছিল — সেটা ছোট text ও সরিয়ে দিতো!
+        # এখন >= 4 — শুধু single-pixel noise সরাবে, ছোট text রাখবে
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
         cleaned = np.zeros_like(mask)
         for i in range(1, num_labels):
-            if stats[i, cv2.CC_STAT_AREA] >= 9:
+            if stats[i, cv2.CC_STAT_AREA] >= 4:
                 cleaned[labels == i] = 255
         mask = cleaned
 
@@ -3365,7 +3367,7 @@ log_event("Cell 8: Inpainting Engine ready (LaMa Large + OpenCV fallback)")
 <a id='cell-09'></a>
 ## 🧩 Cell 09 — ✍️ CELL 9 — Bengali Text Renderer (V11: Pillow + libraqm)
 **Source file:** `cell_09_renderer.py`
-**Length:** 16339 chars / 487 lines
+**Length:** 16615 chars / 496 lines
 
 ```python
 # ═══════════════════════════════════════════════════════════
@@ -3522,22 +3524,31 @@ def fit_font_size(text, target_width, target_height, bold=False,
             hi = mid - 1
 
     # ── V11 fix: যদি min_size এও fit না হয় ──
-    # text কে আরো ভাগ করো (ছোট ছোট line)
+    # TRUNCATION নেই! ডায়লগ কাটা যাবে না।
+    # পুরো text render করব — font size min_size এ রেখে
     if best_height == 0 or best_height > avail_h:
         font = get_font(min_size, bold)
         lines = split_text_to_lines(text, font, draw, avail_w)
-        line_h = min_size * 1.3
+        line_h = min_size * 1.1  # line spacing কমানো (1.3 → 1.1)
         total_h = line_h * len(lines)
 
-        # এখনও fit হচ্ছে না? text ছোট করো (truncation)
-        if total_h > avail_h and len(lines) > 0:
-            max_lines = max(1, int(avail_h / line_h))
-            lines = lines[:max_lines]
-            # শেষ line এ "..." যোগ করো
-            if len(lines) > 0 and max_lines < len(split_text_to_lines(text, font, draw, avail_w)):
-                lines[-1] = lines[-1][:len(lines[-1])//2] + '...'
+        # এখনও fit হচ্ছে না? font আরো ছোট করো (8px পর্যন্ত)
+        if total_h > avail_h:
+            smaller_size = max(6, min_size - 2)
+            font = get_font(smaller_size, bold)
+            lines = split_text_to_lines(text, font, draw, avail_w)
+            line_h = smaller_size * 1.1
+            total_h = line_h * len(lines)
 
-        best_size = min_size
+            # এখনও fit না হলে line spacing আরো কমাও
+            if total_h > avail_h:
+                line_h = smaller_size * 1.0  # tight spacing
+                total_h = line_h * len(lines)
+
+            best_size = smaller_size
+        else:
+            best_size = min_size
+
         best_lines = lines
         best_height = line_h * len(lines)
 

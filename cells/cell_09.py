@@ -152,22 +152,31 @@ def fit_font_size(text, target_width, target_height, bold=False,
             hi = mid - 1
 
     # ── V11 fix: যদি min_size এও fit না হয় ──
-    # text কে আরো ভাগ করো (ছোট ছোট line)
+    # TRUNCATION নেই! ডায়লগ কাটা যাবে না।
+    # পুরো text render করব — font size min_size এ রেখে
     if best_height == 0 or best_height > avail_h:
         font = get_font(min_size, bold)
         lines = split_text_to_lines(text, font, draw, avail_w)
-        line_h = min_size * 1.3
+        line_h = min_size * 1.1  # line spacing কমানো (1.3 → 1.1)
         total_h = line_h * len(lines)
 
-        # এখনও fit হচ্ছে না? text ছোট করো (truncation)
-        if total_h > avail_h and len(lines) > 0:
-            max_lines = max(1, int(avail_h / line_h))
-            lines = lines[:max_lines]
-            # শেষ line এ "..." যোগ করো
-            if len(lines) > 0 and max_lines < len(split_text_to_lines(text, font, draw, avail_w)):
-                lines[-1] = lines[-1][:len(lines[-1])//2] + '...'
+        # এখনও fit হচ্ছে না? font আরো ছোট করো (8px পর্যন্ত)
+        if total_h > avail_h:
+            smaller_size = max(6, min_size - 2)
+            font = get_font(smaller_size, bold)
+            lines = split_text_to_lines(text, font, draw, avail_w)
+            line_h = smaller_size * 1.1
+            total_h = line_h * len(lines)
 
-        best_size = min_size
+            # এখনও fit না হলে line spacing আরো কমাও
+            if total_h > avail_h:
+                line_h = smaller_size * 1.0  # tight spacing
+                total_h = line_h * len(lines)
+
+            best_size = smaller_size
+        else:
+            best_size = min_size
+
         best_lines = lines
         best_height = line_h * len(lines)
 
