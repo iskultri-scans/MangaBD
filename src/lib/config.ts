@@ -8,15 +8,13 @@ export const SITE_CONFIG = {
   description:
     'Your premier Bengali & English manga directory and reader hub. Discover trending series, track chapters, and get instant Telegram alerts.',
 
-  // Social Media Links
+  // Social Media Links (empty when env var is not set)
   social: {
-    facebook: process.env.NEXT_PUBLIC_FACEBOOK_URL || 'https://facebook.com/mangabd',
-    telegram: process.env.NEXT_PUBLIC_TELEGRAM_URL || 'https://t.me/mangabd',
+    facebook: process.env.NEXT_PUBLIC_FACEBOOK_URL || '',
+    telegram: process.env.NEXT_PUBLIC_TELEGRAM_URL || '',
   },
   telegramBotUrl:
-    process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL ||
-    process.env.NEXT_PUBLIC_TELEGRAM_URL ||
-    'https://t.me/mangabd',
+    process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL || 'https://t.me/bong_manga_bot',
 
   // Feature Flags (default OFF for adult mode)
   features: {

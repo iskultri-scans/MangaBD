@@ -27,11 +27,12 @@
 - **Broadcasts:** Admin publishes chapter → `POST /api/telegram/broadcast` posts to Main Channel and sends rate-limited DMs (20/batch, 1s delay) only to linked users with `notificationsEnabled: true` who bookmarked that manga (or all linked users for global announcements).
 
 ## 4. Security Invariants (LOCKED)
-1. **Zero secrets in client code or git:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `FIREBASE_ADMIN_*` must stay server-only and never be committed.
-2. **Admin-only mutations:** `/api/telegram/upload` and `/api/telegram/broadcast` must strictly require verified admin authorization.
-3. **Webhook authentication:** `/api/telegram/webhook` must verify `X-Telegram-Bot-Api-Secret-Token`.
-4. **Single-use expiring link tokens:** `telegramLinkTokens` must expire (10 min) and be invalidated immediately on use; client read/write must be completely blocked in Firestore rules.
+1. **Zero secrets in client code or git & controlled writes:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `FIREBASE_ADMIN_*` must stay server-only and never be committed. Admin লেখা client SDK দিয়ে হলেও চলবে যদি `firestore.rules`-এ `isAdmin()` + schema validation enforced থাকে।
+2. **Admin-only mutations:** `/api/telegram/upload` and `/api/telegram/broadcast` must strictly require verified admin authorization (`admins/{uid}`).
+3. **Webhook authentication:** `/api/telegram/webhook` must verify `X-Telegram-Bot-Api-Secret-Token` (mandatory in production, `503` if unset).
+4. **Single-use expiring link tokens:** `telegramLinkTokens` must expire (10 min) and be invalidated atomically inside `runTransaction`; client read/write completely blocked.
 5. **No Telegram URL leakage:** `/api/image/[fileId]` must never leak `file_path` or `bot_token` to the browser.
+6. **No Adult Content Uploads:** Adult content upload is strictly prohibited; adult mode remains feature-flagged OFF (`NEXT_PUBLIC_ENABLE_ADULT_MODE=false`).
 
 ## 5. Environment Variables (LOCKED)
 *(Names and locations only — never store values here.)*
@@ -45,7 +46,7 @@
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 - `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` *(optional)*
 - `NEXT_PUBLIC_SITE_URL`
-- `NEXT_PUBLIC_ADMIN_EMAIL`
+- `NEXT_PUBLIC_ENABLE_ADULT_MODE` *(default `false`)*
 - `NEXT_PUBLIC_FACEBOOK_URL` *(optional)*
 - `NEXT_PUBLIC_TELEGRAM_URL` *(optional)*
 - `NEXT_PUBLIC_TELEGRAM_BOT_URL` *(optional)*
@@ -68,10 +69,11 @@
 - **Round 3+:** Production cutover (`mangabd-prod` + Vercel + Webhook + Smoke Test), Monetization / Premium unlock (if approved by PM)
 
 ## 7. Rules (LOCKED)
+- সেশন শুরুতে `git fetch` করে `HEAD` vs `origin` মিলাও; `.git` না থাকলে থামো, রিপোর্ট করো — নতুন টোকেনে re-clone হবে।
+- Adult কনটেন্ট আপলোড নিষেধ।
 - Never fabricate code or deployment state; verify against the actual repository.
 - Never print secrets (tokens, private keys, service account JSON, API keys) in chat, commits, or docs.
 - Update Decision Log & Changelog after every completed round.
-- Do not start Round 2 fixes until explicitly instructed by PM.
 
 ---
 
@@ -215,3 +217,4 @@
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
 - **2026-11-18:** Completed full Round 1 Audit Report (A1–A9) and Business Firebase Migration Guide (B1–B11).
 - **2026-11-19:** Created `PROJECT_CONTEXT.md`, verified `.gitignore`, pushed baseline commit to `mangabd/mangabd`, and completed Round 2 security + upload + branding fixes.
+- **2026-11-19 (Round 2.5):** Google OAuth only (removed email/password auth), `DELETE /api/admin/session` on signOut, 24h session cookie expiry, clean `config.ts` defaults, removed unused `next-auth`/`uuid`/`z-ai-web-dev-sdk`, added `NEXT_PUBLIC_ENABLE_ADULT_MODE` to `.env.example`, updated `PROJECT_CONTEXT.md`.

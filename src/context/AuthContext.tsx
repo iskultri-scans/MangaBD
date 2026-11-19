@@ -3,10 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import {
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
   type User,
@@ -18,8 +15,6 @@ interface AuthContextType {
   user: User | null;
   isAdmin: boolean;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -28,8 +23,6 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   isAdmin: false,
   loading: true,
-  signIn: async () => {},
-  signUp: async () => {},
   signInWithGoogle: async () => {},
   signOut: async () => {},
 });
@@ -58,27 +51,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
-  }, []);
-
-  const signUp = useCallback(async (email: string, password: string, displayName: string) => {
-    const cred = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
-    await updateProfile(cred.user, { displayName });
-  }, []);
-
   const signInWithGoogle = useCallback(async () => {
     const provider = new GoogleAuthProvider();
     await signInWithPopup(getFirebaseAuth(), provider);
   }, []);
 
   const signOut = useCallback(async () => {
+    await fetch('/api/admin/session', { method: 'DELETE' }).catch(() => {});
     await firebaseSignOut(getFirebaseAuth());
-    document.cookie = 'mangabd-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, signIn, signUp, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   );

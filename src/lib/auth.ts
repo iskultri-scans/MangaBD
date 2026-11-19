@@ -11,7 +11,7 @@ export async function verifyAdminSession(idToken: string): Promise<boolean> {
 }
 
 export async function createSessionCookie(idToken: string): Promise<string> {
-  const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days
+  const expiresIn = 60 * 60 * 24 * 1000; // 24 hours
   return getAdminAuth().createSessionCookie(idToken, { expiresIn });
 }
 
