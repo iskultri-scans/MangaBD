@@ -161,11 +161,14 @@ export default function AdminChaptersPage() {
       if (broadcastTelegram && telegramConfigured) {
         try {
           const idToken = await getFirebaseAuth().currentUser?.getIdToken();
+          if (!idToken) {
+            throw new Error('Authentication required for Telegram broadcast.');
+          }
           const tgRes = await fetch('/api/telegram/notify', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+              Authorization: `Bearer ${idToken}`,
             },
             body: JSON.stringify({
               tag: 'NEW CHAPTER',

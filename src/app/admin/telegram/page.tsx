@@ -103,11 +103,15 @@ export default function AdminTelegramPage() {
     setSending(true);
     try {
       const idToken = await getFirebaseAuth().currentUser?.getIdToken(true);
+      if (!idToken) {
+        showToast('Authentication required. Please sign in again.', 'error');
+        return;
+      }
       const res = await fetch('/api/telegram/notify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           tag: tag.trim() || undefined,

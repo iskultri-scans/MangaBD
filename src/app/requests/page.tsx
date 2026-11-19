@@ -13,6 +13,7 @@ import {
 } from '@/lib/firestore';
 import { ThumbsUp, MessageSquare, Send, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/context/AuthContext';
 
 const statusConfig = {
   pending: {
@@ -38,6 +39,7 @@ const statusConfig = {
 };
 
 export default function RequestsPage() {
+  const { user } = useAuth();
   const { showToast } = useToast();
   const [requests, setRequests] = useState<MangaRequestType[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -75,19 +77,17 @@ export default function RequestsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || !formDescription.trim()) return;
+    if (!user) {
+      showToast('Please sign in with Google to submit a request.', 'warning');
+      return;
+    }
     setSubmitting(true);
     try {
-      let userId = localStorage.getItem('iskultrip-user-id');
-      if (!userId) {
-        userId = 'user_' + Math.random().toString(36).substring(2, 10);
-        localStorage.setItem('iskultrip-user-id', userId);
-      }
-
       await addRequest({
         mangaTitle: formTitle,
         mangaTitleBn: formTitleBn || undefined,
         description: formDescription,
-        requestedBy: formName || 'anonymous',
+        requestedBy: user.uid,
         status: 'pending',
         upvotes: 0,
         upvotedBy: [],
@@ -110,13 +110,12 @@ export default function RequestsPage() {
   };
 
   const handleUpvote = async (request: MangaRequestType) => {
-    let userId = localStorage.getItem('iskultrip-user-id');
-    if (!userId) {
-      userId = 'user_' + Math.random().toString(36).substring(2, 10);
-      localStorage.setItem('iskultrip-user-id', userId);
+    if (!user) {
+      showToast('Please sign in with Google to vote on requests.', 'warning');
+      return;
     }
     try {
-      await upvoteRequest(request.id, userId);
+      await upvoteRequest(request.id, user.uid);
       const data = await fetchAllRequests();
       setRequests(data);
     } catch (error) {

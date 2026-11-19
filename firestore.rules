@@ -127,7 +127,7 @@ service cloud.firestore {
         ]) &&
         data.mangaId is string && data.mangaId.size() > 0 && data.mangaId.size() <= 128 &&
         data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
-        (data.titleBn == null || (data.titleBn is string && data.titleBn.size() <= 200)) &&
+        (!('titleBn' in data) || data.titleBn == null || (data.titleBn is string && data.titleBn.size() <= 200)) &&
         data.slug is string && data.slug.size() > 0 && data.slug.size() <= 200 &&
         data.coverImage is string && data.coverImage.size() <= 1000 &&
         (!('genres' in data) || (data.genres is list && data.genres.size() <= 30));
@@ -225,7 +225,9 @@ service cloud.firestore {
       allow create: if isValidId(userId) && isSignedIn() && request.auth.uid == userId &&
         isValidUserProfileUpdate(incoming()) &&
         !('telegramChatId' in incoming()) &&
-        !('telegramLinkedAt' in incoming());
+        !('telegramLinkedAt' in incoming()) &&
+        !('telegramUsername' in incoming()) &&
+        !('telegramBlocked' in incoming());
       allow update: if isValidId(userId) && isSignedIn() && request.auth.uid == userId &&
         isValidUserProfileUpdate(incoming()) &&
         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'notificationsEnabled', 'updatedAt']);
@@ -252,14 +254,33 @@ service cloud.firestore {
     match /requests/{requestId} {
       allow list: if true;
       allow get: if isValidId(requestId);
-      allow create: if isValidId(requestId) && isValidRequest(incoming()) &&
-        incoming().status == 'pending' && incoming().upvotes == 0;
+      allow create: if isValidId(requestId) && isSignedIn() && isValidRequest(incoming()) &&
+        incoming().requestedBy == request.auth.uid &&
+        incoming().status == 'pending' &&
+        incoming().upvotes == 0 &&
+        incoming().upvotedBy.size() == 0;
       allow update: if isValidId(requestId) && isValidRequest(incoming()) && (
         isAdmin() ||
         (
+          isSignedIn() &&
           incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'upvotedBy', 'updatedAt']) &&
           incoming().status == existing().status &&
-          incoming().mangaTitle == existing().mangaTitle
+          incoming().mangaTitle == existing().mangaTitle &&
+          incoming().upvotes == incoming().upvotedBy.size() &&
+          (
+            (
+              !(request.auth.uid in existing().upvotedBy) &&
+              (request.auth.uid in incoming().upvotedBy) &&
+              incoming().upvotes == existing().upvotes + 1 &&
+              incoming().upvotedBy.hasAll(existing().upvotedBy)
+            ) ||
+            (
+              (request.auth.uid in existing().upvotedBy) &&
+              !(request.auth.uid in incoming().upvotedBy) &&
+              incoming().upvotes == existing().upvotes - 1 &&
+              existing().upvotedBy.hasAll(incoming().upvotedBy)
+            )
+          )
         )
       );
       allow delete: if isValidId(requestId) && isAdmin();

@@ -155,9 +155,12 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
     setAdding(true);
     try {
       const idToken = user ? await user.getIdToken() : null;
-      const authHeaders: Record<string, string> = idToken
-        ? { Authorization: `Bearer ${idToken}` }
-        : {};
+      if (!idToken) {
+        throw new Error('Authentication required. Please sign in again.');
+      }
+      const authHeaders: Record<string, string> = {
+        Authorization: `Bearer ${idToken}`,
+      };
 
       const mergedMap: Record<number, ChapterPage> = { ...uploadedPagesMap };
 
@@ -207,12 +210,15 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
 
       const chapterNum = parseInt(newChapterNumber, 10);
       const chapterTitle = newChapterTitle.trim() || `Chapter ${chapterNum}`;
+      const effectiveReadLink =
+        newChapterLink.trim() ||
+        `${mangaSlug ? `/manga/${mangaSlug}` : `/manga/${mangaId}`}#chapter-${chapterNum}`;
 
       await addChapter(mangaId, {
         mangaId,
         title: chapterTitle,
         chapterNumber: chapterNum,
-        readLink: newChapterLink.trim(),
+        readLink: effectiveReadLink,
         ...(uploadedPages.length > 0 ? { pages: uploadedPages } : {}),
         createdAt: chapters.length > 0 ? chapters[0].createdAt : (new Date() as unknown as Chapter['createdAt']),
       });

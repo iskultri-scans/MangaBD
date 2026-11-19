@@ -89,11 +89,14 @@ export default function AddMangaPage() {
       if (broadcastTelegram && telegramConfigured) {
         try {
           const synopsis = ((data.description as string) || '').trim();
+          if (!idToken) {
+            throw new Error('Authentication required for Telegram broadcast.');
+          }
           const tgRes = await fetch('/api/telegram/notify', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+              Authorization: `Bearer ${idToken}`,
             },
             body: JSON.stringify({
               tag: 'NEW SERIES',

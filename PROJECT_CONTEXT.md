@@ -212,9 +212,11 @@
 - **2026-11-17:** Approved Next.js + Firebase Firestore + Telegram CDN/Broadcast decoupled architecture.
 - **2026-11-18:** Decided to migrate from personal Firebase project to dedicated Business Firebase project `mangabd-prod` (`asia-south1`) + Vercel deployment.
 - **2026-11-19:** Established `PROJECT_CONTEXT.md` as single source of truth for PM ↔ Lead Engineer workflow; completed Round 2 security, upload, and branding hardening.
+- **2026-11-19 (P2 Reminder):** P2 premium ফিচার ইমপ্লিমেন্ট করার সময় `firestore.rules`-এর `hasOnly` whitelist-এ `isPremium` / `unlock` ফিল্ডগুলো যোগ করতে হবে।
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
 - **2026-11-18:** Completed full Round 1 Audit Report (A1–A9) and Business Firebase Migration Guide (B1–B11).
 - **2026-11-19:** Created `PROJECT_CONTEXT.md`, verified `.gitignore`, pushed baseline commit to `mangabd/mangabd`, and completed Round 2 security + upload + branding fixes.
 - **2026-11-19 (Round 2.5):** Google OAuth only (removed email/password auth), `DELETE /api/admin/session` on signOut, 24h session cookie expiry, clean `config.ts` defaults, removed unused `next-auth`/`uuid`/`z-ai-web-dev-sdk`, added `NEXT_PUBLIC_ENABLE_ADULT_MODE` to `.env.example`, updated `PROJECT_CONTEXT.md`.
+- **2026-11-19 (Round 3):** Hardened `firestore.rules` (`requests` 1-UID-1-vote + symmetric unvote, `isValidBookmark` optional `titleBn`, `users` create blocks `telegramUsername`/`telegramBlocked`), enforced non-null Bearer token in admin client callers, added internal reader `readLink` fallback in `ChapterManager`.
