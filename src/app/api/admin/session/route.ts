@@ -1,57 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSessionCookie, verifyAdminSession } from '@/lib/auth';
-import { SITE_CONFIG } from '@/lib/config';
-import { firebaseConfig } from '@/lib/firebase';
-
-async function verifyIdTokenViaRest(idToken: string): Promise<{ email?: string; emailVerified?: boolean } | null> {
-  if (!firebaseConfig.apiKey) return null;
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseConfig.apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    }
-  );
-  if (!res.ok) return null;
-  const data = await res.json();
-  const user = data?.users?.[0];
-  if (!user) return null;
-  return { email: user.email, emailVerified: Boolean(user.emailVerified) };
-}
+import { hasAdminCredentials } from '@/lib/firebase-admin';
+import { SESSION_COOKIE_NAME } from '@/lib/server-auth';
 
 export async function POST(request: NextRequest) {
   try {
-    const { idToken } = await request.json();
+    if (!hasAdminCredentials()) {
+      return NextResponse.json(
+        { error: 'Firebase Admin SDK is not configured on the server.' },
+        { status: 503 }
+      );
+    }
 
-    if (!idToken) {
+    const { idToken } = await request.json();
+    if (!idToken || typeof idToken !== 'string') {
       return NextResponse.json({ error: 'Missing idToken' }, { status: 400 });
     }
 
-    const hasAdminEnv = Boolean(
-      process.env.FIREBASE_ADMIN_PROJECT_ID &&
-      process.env.FIREBASE_ADMIN_CLIENT_EMAIL &&
-      process.env.FIREBASE_ADMIN_PRIVATE_KEY
-    );
-
-    let sessionCookieValue = '';
-
-    if (hasAdminEnv) {
-      const isAdmin = await verifyAdminSession(idToken);
-      if (!isAdmin) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-      }
-      sessionCookieValue = await createSessionCookie(idToken);
-    } else {
-      const user = await verifyIdTokenViaRest(idToken);
-      if (!user?.email || !user.emailVerified || !SITE_CONFIG.adminEmails.includes(user.email)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-      }
-      sessionCookieValue = 'verified-admin-session';
+    const isAdmin = await verifyAdminSession(idToken);
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    // Cryptographically signed Firebase Auth session cookie (RS256 JWT)
+    const sessionCookieValue = await createSessionCookie(idToken);
+
     const response = NextResponse.json({ success: true });
-    response.cookies.set('iskultrip-session', sessionCookieValue, {
+    response.cookies.set(SESSION_COOKIE_NAME, sessionCookieValue, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -61,14 +36,14 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Session creation error:', error);
+    console.error('[API /admin/session] Session creation error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE() {
   const response = NextResponse.json({ success: true });
-  response.cookies.set('iskultrip-session', '', {
+  response.cookies.set(SESSION_COOKIE_NAME, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',

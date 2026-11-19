@@ -49,10 +49,6 @@ export default function AdminLoginPage() {
 
     setLoading(true);
     try {
-      if (!SITE_CONFIG.adminEmails.includes(email)) {
-        throw new Error('Unauthorized email');
-      }
-
       const cred = await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
 
       const idToken = await cred.user.getIdToken();
@@ -89,9 +85,6 @@ export default function AdminLoginPage() {
     try {
       const provider = new GoogleAuthProvider();
       const cred = await signInWithPopup(getFirebaseAuth(), provider);
-      if (!cred.user.email || !SITE_CONFIG.adminEmails.includes(cred.user.email)) {
-        throw new Error('Unauthorized email');
-      }
       const idToken = await cred.user.getIdToken();
       const res = await fetch('/api/admin/session', {
         method: 'POST',

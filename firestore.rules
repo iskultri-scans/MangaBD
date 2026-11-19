@@ -25,16 +25,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (
-          request.auth.token.email_verified == true &&
-          (
-            request.auth.token.email == 'mahadyking351@gmail.com' ||
-            request.auth.token.email == 'bongmanga.official@gmail.com'
-          )
-        )
-      );
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
     // ─── Validation Helpers ──────────────────────────────────

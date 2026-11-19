@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2 } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2, RefreshCw } from 'lucide-react';
 import {
   addChapter,
   deleteChapter,
@@ -19,8 +19,46 @@ interface ChapterManagerProps {
   mangaSlug?: string;
 }
 
-const UPLOAD_BATCH_SIZE = 10;
-const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+const UPLOAD_CONCURRENCY = 3;
+const MAX_RETRIES = 2;
+const COMPRESS_THRESHOLD_BYTES = 3.5 * 1024 * 1024; // 3.5MB -> compress to WebP on client
+const SERVER_MAX_BYTES = 4 * 1024 * 1024; // 4MB server cap
+
+/**
+ * Compresses an image file > 3.5MB to WebP using Canvas so it stays under the 4MB server cap.
+ */
+async function compressToWebPIfNeeded(file: File): Promise<File> {
+  if (file.size <= COMPRESS_THRESHOLD_BYTES) return file;
+
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    bitmap.close();
+    return file;
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+
+  const qualities = [0.85, 0.72, 0.58];
+  for (const q of qualities) {
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/webp', q)
+    );
+    if (blob && blob.size <= SERVER_MAX_BYTES) {
+      const webpName = file.name.replace(/\.[^.]+$/, '') + '.webp';
+      return new File([blob], webpName, { type: 'image/webp' });
+    }
+  }
+
+  throw new Error(`"${file.name}" could not be compressed under 4MB.`);
+}
+
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManagerProps) {
   const { user } = useAuth();
@@ -31,6 +69,8 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [newChapterLink, setNewChapterLink] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  // Resume map: pageNumber -> ChapterPage (persists across partial failures for seamless resume)
+  const [uploadedPagesMap, setUploadedPagesMap] = useState<Record<number, ChapterPage>>({});
   const [notifyTelegram, setNotifyTelegram] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [adding, setAdding] = useState(false);
@@ -56,14 +96,50 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const oversized = files.find((f) => f.size > MAX_FILE_SIZE_BYTES);
-    if (oversized) {
-      showToast(`"${oversized.name}" exceeds the 20MB Telegram CDN limit.`, 'error');
-      return;
-    }
-    // Sort naturally by filename (e.g. 1.jpg, 2.jpg, 10.jpg)
     files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     setSelectedFiles(files);
+    setUploadedPagesMap({});
+  };
+
+  const uploadSinglePageWithRetry = async (
+    file: File,
+    pageNumber: number,
+    authHeaders: Record<string, string>
+  ): Promise<ChapterPage> => {
+    const preparedFile = await compressToWebPIfNeeded(file);
+    let lastError: Error = new Error(`Page ${pageNumber} upload failed`);
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const formData = new FormData();
+        formData.append('startPage', String(pageNumber));
+        formData.append('caption', `${mangaTitle} — Ch. ${newChapterNumber}`);
+        formData.append('file', preparedFile);
+
+        const uploadRes = await fetch('/api/telegram/upload', {
+          method: 'POST',
+          headers: authHeaders,
+          body: formData,
+        });
+        const uploadData = await uploadRes.json();
+
+        if (!uploadRes.ok || !uploadData.ok || !uploadData.pages?.[0]?.fileId) {
+          throw new Error(uploadData.error || `Failed on page ${pageNumber}`);
+        }
+
+        return {
+          pageNumber,
+          fileId: uploadData.pages[0].fileId,
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < MAX_RETRIES) {
+          await sleep(500 * (attempt + 1));
+        }
+      }
+    }
+
+    throw lastError;
   };
 
   const handleAddChapter = async () => {
@@ -83,48 +159,55 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         ? { Authorization: `Bearer ${idToken}` }
         : {};
 
-      const uploadedPages: ChapterPage[] = [];
+      const mergedMap: Record<number, ChapterPage> = { ...uploadedPagesMap };
 
-      // 1. Upload selected images in batches to /api/telegram/upload
       if (selectedFiles.length > 0) {
-        setUploadProgress({ current: 0, total: selectedFiles.length });
+        // Queue only pages not yet uploaded (supports resume + partial-merge)
+        const pendingTasks = selectedFiles
+          .map((file, idx) => ({ file, pageNumber: idx + 1 }))
+          .filter((item) => !mergedMap[item.pageNumber]);
 
-        for (let i = 0; i < selectedFiles.length; i += UPLOAD_BATCH_SIZE) {
-          const batch = selectedFiles.slice(i, i + UPLOAD_BATCH_SIZE);
-          const formData = new FormData();
-          formData.append('startPage', String(i + 1));
-          formData.append('caption', `${mangaTitle} — Ch. ${newChapterNumber}`);
-          batch.forEach((file) => formData.append('files', file));
+        let completedCount = Object.keys(mergedMap).length;
+        setUploadProgress({ current: completedCount, total: selectedFiles.length });
 
-          const uploadRes = await fetch('/api/telegram/upload', {
-            method: 'POST',
-            headers: authHeaders,
-            body: formData,
-          });
-          const uploadData = await uploadRes.json();
+        const failedPages: string[] = [];
+        let cursor = 0;
 
-          if (!uploadRes.ok || !uploadData.ok) {
-            throw new Error(uploadData.error || 'Failed to upload pages to Telegram CDN.');
+        const worker = async () => {
+          while (cursor < pendingTasks.length) {
+            const task = pendingTasks[cursor++];
+            try {
+              const page = await uploadSinglePageWithRetry(task.file, task.pageNumber, authHeaders);
+              mergedMap[task.pageNumber] = page;
+              completedCount += 1;
+              setUploadedPagesMap({ ...mergedMap });
+              setUploadProgress({ current: completedCount, total: selectedFiles.length });
+            } catch (err) {
+              failedPages.push(
+                `Page ${task.pageNumber}: ${err instanceof Error ? err.message : 'Failed'}`
+              );
+            }
           }
+        };
 
-          for (const p of uploadData.pages as { pageNumber: number; fileId: string }[]) {
-            uploadedPages.push({
-              pageNumber: p.pageNumber,
-              fileId: p.fileId,
-            });
-          }
+        await Promise.all(
+          Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pendingTasks.length) }, () => worker())
+        );
 
-          setUploadProgress({
-            current: Math.min(i + batch.length, selectedFiles.length),
-            total: selectedFiles.length,
-          });
+        if (failedPages.length > 0) {
+          throw new Error(
+            `${failedPages.length} page(s) failed (${completedCount}/${selectedFiles.length} saved). Click Resume Upload to finish.`
+          );
         }
       }
+
+      const uploadedPages: ChapterPage[] = Object.values(mergedMap).sort(
+        (a, b) => a.pageNumber - b.pageNumber
+      );
 
       const chapterNum = parseInt(newChapterNumber, 10);
       const chapterTitle = newChapterTitle.trim() || `Chapter ${chapterNum}`;
 
-      // 2. Save chapter document to Firestore
       await addChapter(mangaId, {
         mangaId,
         title: chapterTitle,
@@ -134,7 +217,6 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         createdAt: chapters.length > 0 ? chapters[0].createdAt : (new Date() as unknown as Chapter['createdAt']),
       });
 
-      // 3. Optionally trigger Telegram Broadcast
       if (notifyTelegram) {
         const chapterUrl = mangaSlug
           ? `${window.location.origin}/manga/${mangaSlug}`
@@ -176,6 +258,7 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
       setNewChapterTitle('');
       setNewChapterLink('');
       setSelectedFiles([]);
+      setUploadedPagesMap({});
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       setShowAddForm(false);
@@ -184,7 +267,6 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
       showToast(error instanceof Error ? error.message : 'Failed to add chapter', 'error');
     } finally {
       setAdding(false);
-      setUploadProgress(null);
     }
   };
 
@@ -211,6 +293,11 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
       ? Math.round((uploadProgress.current / uploadProgress.total) * 100)
       : 0;
 
+  const hasPartialUpload =
+    selectedFiles.length > 0 &&
+    Object.keys(uploadedPagesMap).length > 0 &&
+    Object.keys(uploadedPagesMap).length < selectedFiles.length;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -227,7 +314,6 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         </button>
       </div>
 
-      {/* Add Chapter Form */}
       {showAddForm && (
         <div className="p-4 rounded-xl mb-4 space-y-3.5 border border-[var(--border-color)] bg-[var(--bg-secondary)]">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -254,11 +340,10 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
             </div>
           </div>
 
-          {/* Multi-Image Telegram CDN Uploader */}
           <div>
             <label className="text-xs text-[var(--text-muted)] mb-1.5 flex items-center gap-1.5">
               <Upload size={12} className="text-[var(--accent)]" />
-              Chapter Pages (Telegram CDN — max 20MB/image)
+              Chapter Pages (Telegram CDN — auto-WebP if &gt;3.5MB, 4MB server cap)
             </label>
             <input
               ref={fileInputRef}
@@ -271,17 +356,18 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
             />
             {selectedFiles.length > 0 && (
               <p className="text-[11px] text-[var(--text-secondary)] mt-1.5 font-mono-num">
-                {selectedFiles.length} {selectedFiles.length === 1 ? 'page' : 'pages'} selected (auto-sorted by filename)
+                {selectedFiles.length} {selectedFiles.length === 1 ? 'page' : 'pages'} selected
+                {Object.keys(uploadedPagesMap).length > 0 &&
+                  ` · ${Object.keys(uploadedPagesMap).length} uploaded`}
               </p>
             )}
           </div>
 
-          {/* Upload Progress Bar */}
           {uploadProgress && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-[var(--text-secondary)] font-medium">
-                  Uploading pages to Telegram CDN...
+                  Uploading pages (concurrency {UPLOAD_CONCURRENCY}, retry {MAX_RETRIES})...
                 </span>
                 <span className="font-mono-num text-[var(--accent)] font-semibold">
                   {uploadProgress.current} / {uploadProgress.total} ({progressPct}%)
@@ -309,7 +395,6 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
             />
           </div>
 
-          {/* Notify Telegram Subscribers Checkbox */}
           <label className="flex items-center gap-2.5 cursor-pointer pt-1">
             <input
               type="checkbox"
@@ -331,8 +416,12 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
               disabled={adding}
               className="btn-accent text-xs py-2 px-4 inline-flex items-center gap-1.5 cursor-pointer"
             >
-              {adding && <Loader2 size={13} className="animate-spin" />}
-              {adding ? 'Publishing...' : 'Publish Chapter'}
+              {adding ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : hasPartialUpload ? (
+                <RefreshCw size={13} />
+              ) : null}
+              {adding ? 'Publishing...' : hasPartialUpload ? 'Resume Upload' : 'Publish Chapter'}
             </button>
             <button
               type="button"
@@ -346,7 +435,6 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         </div>
       )}
 
-      {/* Chapter List */}
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (

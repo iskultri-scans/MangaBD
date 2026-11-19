@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Timestamp } from 'firebase-admin/firestore';
-import { getAdminFirestore } from '@/lib/firebase-admin';
+import { getAdminFirestore, hasAdminCredentials } from '@/lib/firebase-admin';
 import { sendTelegramTextReply } from '@/lib/telegram';
 import { SITE_URL } from '@/lib/site-url';
 
@@ -25,13 +25,27 @@ interface TelegramUpdate {
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify Telegram webhook secret header if configured
+    // Webhook secret is mandatory in production
     const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-    if (expectedSecret) {
+    if (!expectedSecret) {
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json(
+          { ok: false, error: 'TELEGRAM_WEBHOOK_SECRET is not configured.' },
+          { status: 503 }
+        );
+      }
+    } else {
       const incomingSecret = request.headers.get('x-telegram-bot-api-secret-token');
       if (incomingSecret !== expectedSecret) {
         return NextResponse.json({ ok: false, error: 'Invalid webhook secret.' }, { status: 401 });
       }
+    }
+
+    if (!hasAdminCredentials()) {
+      return NextResponse.json(
+        { ok: false, error: 'Firebase Admin SDK is not configured.' },
+        { status: 503 }
+      );
     }
 
     const update = (await request.json()) as TelegramUpdate;
@@ -46,64 +60,72 @@ export async function POST(request: NextRequest) {
     const username = message.from?.username || message.chat.username || null;
     const text = message.text.trim();
 
-    // 1. Handle Account Linking: /start link_<token>
+    // 1. Handle Account Linking: /start link_<token> atomically inside Firestore runTransaction
     const linkMatch = text.match(/^\/start(?:@\w+)?\s+link_([A-Za-z0-9_-]{12,128})$/);
     if (linkMatch) {
       const token = linkMatch[1];
       const db = getAdminFirestore();
       const tokenRef = db.collection('telegramLinkTokens').doc(token);
-      const tokenSnap = await tokenRef.get();
 
-      if (!tokenSnap.exists) {
+      const txResult = await db.runTransaction(async (tx) => {
+        const tokenSnap = await tx.get(tokenRef);
+        if (!tokenSnap.exists) {
+          return { status: 'invalid' as const };
+        }
+
+        const tokenData = tokenSnap.data() as {
+          userId: string;
+          email?: string | null;
+          displayName?: string | null;
+          used?: boolean;
+          expiresAt?: Timestamp;
+        };
+
+        const isExpired =
+          !tokenData.expiresAt || tokenData.expiresAt.toMillis() < Date.now();
+
+        if (tokenData.used || isExpired) {
+          tx.delete(tokenRef);
+          return { status: 'expired' as const };
+        }
+
+        const userRef = db.collection('users').doc(tokenData.userId);
+        tx.set(
+          userRef,
+          {
+            ...(tokenData.email ? { email: tokenData.email } : {}),
+            ...(tokenData.displayName ? { displayName: tokenData.displayName } : {}),
+            telegramChatId: chatId,
+            telegramUsername: username,
+            telegramLinkedAt: Timestamp.now(),
+            notificationsEnabled: true,
+            telegramBlocked: false,
+            updatedAt: Timestamp.now(),
+          },
+          { merge: true }
+        );
+
+        // Atomically consume token so it can never be reused
+        tx.delete(tokenRef);
+        return { status: 'linked' as const };
+      });
+
+      if (txResult.status === 'invalid') {
         await sendTelegramTextReply(
           chatId,
           '<b>Invalid Link Token</b>\n\nThis link code was not found or has already been used. Please generate a new link from your MangaBD account.'
         );
-        return NextResponse.json({ ok: true });
-      }
-
-      const tokenData = tokenSnap.data() as {
-        userId: string;
-        email?: string | null;
-        displayName?: string | null;
-        used?: boolean;
-        expiresAt?: Timestamp;
-      };
-
-      const isExpired =
-        !tokenData.expiresAt || tokenData.expiresAt.toMillis() < Date.now();
-
-      if (tokenData.used || isExpired) {
-        await tokenRef.delete().catch(() => {});
+      } else if (txResult.status === 'expired') {
         await sendTelegramTextReply(
           chatId,
           '<b>Link Expired</b>\n\nThis link token has expired. Please click <b>Connect Telegram</b> again on MangaBD.'
         );
-        return NextResponse.json({ ok: true });
+      } else {
+        await sendTelegramTextReply(
+          chatId,
+          `<b>Account Connected!</b>\n\nYour MangaBD account is now linked to this Telegram chat. You will receive instant alerts whenever your bookmarked manga get new chapters.\n\nSend /stop anytime to mute notifications.`
+        );
       }
-
-      // Link Telegram Chat ID to the user's Firestore profile
-      await db.collection('users').doc(tokenData.userId).set(
-        {
-          ...(tokenData.email ? { email: tokenData.email } : {}),
-          ...(tokenData.displayName ? { displayName: tokenData.displayName } : {}),
-          telegramChatId: chatId,
-          telegramUsername: username,
-          telegramLinkedAt: Timestamp.now(),
-          notificationsEnabled: true,
-          telegramBlocked: false,
-          updatedAt: Timestamp.now(),
-        },
-        { merge: true }
-      );
-
-      // Consume token so it cannot be reused
-      await tokenRef.delete().catch(() => {});
-
-      await sendTelegramTextReply(
-        chatId,
-        `<b>Account Connected!</b>\n\nYour MangaBD account is now linked to this Telegram chat. You will receive instant alerts whenever your bookmarked manga get new chapters.\n\nSend /stop anytime to mute notifications.`
-      );
       return NextResponse.json({ ok: true });
     }
 
@@ -145,7 +167,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('[API /telegram/webhook] Error:', error);
-    // Return 200 so Telegram does not infinitely retry malformed updates
     return NextResponse.json({ ok: false }, { status: 200 });
   }
 }

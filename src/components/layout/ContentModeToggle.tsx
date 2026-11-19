@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Shield, ShieldCheck, ChevronDown, Check } from 'lucide-react';
 import { useContentMode, type ContentMode } from '@/context/ContentModeContext';
+import { SITE_CONFIG } from '@/lib/config';
 
 interface ContentModeToggleProps {
   isOpen?: boolean;
@@ -32,6 +33,10 @@ export function ContentModeToggle({ isOpen, onToggle, onClose }: ContentModeTogg
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [open]);
+
+  if (!SITE_CONFIG.features.adultModeEnabled) {
+    return null;
+  }
 
   const isFamily = mode === 'family';
 

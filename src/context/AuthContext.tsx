@@ -11,8 +11,8 @@ import {
   signInWithPopup,
   type User,
 } from 'firebase/auth';
-import { getFirebaseAuth } from '@/lib/firebase';
-import { SITE_CONFIG } from '@/lib/config';
+import { doc, getDoc } from 'firebase/firestore';
+import { getFirebaseAuth, getFirebaseDb } from '@/lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -40,10 +40,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (firebaseUser) => {
       setUser(firebaseUser);
-      if (firebaseUser?.email) {
-        setIsAdmin(SITE_CONFIG.adminEmails.includes(firebaseUser.email));
+      if (firebaseUser?.uid) {
+        try {
+          const adminSnap = await getDoc(doc(getFirebaseDb(), 'admins', firebaseUser.uid));
+          setIsAdmin(adminSnap.exists());
+        } catch {
+          setIsAdmin(false);
+        }
       } else {
         setIsAdmin(false);
       }
@@ -69,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     await firebaseSignOut(getFirebaseAuth());
-    document.cookie = 'iskultrip-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'mangabd-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
   }, []);
 
   return (

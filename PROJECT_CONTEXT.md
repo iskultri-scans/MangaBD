@@ -177,19 +177,19 @@
 1. Dev environment mismatch: Client SDK points to `forward-mesh-7xctm` while local Admin SDK service account points to `nexusplay` (which has no `(default)` Firestore database yet → `5 NOT_FOUND`). Resolved permanently by migrating both to `mangabd-prod`.
 2. Webhook is currently unset (`url: ""`) until production Vercel URL is live.
 
-### Security & UX Fix Tracker (All Pending PM Round 2 Approval)
+### Security & UX Fix Tracker (Round 2 Completed)
 | ID | Category | Status |
 | :--- | :--- | :--- |
-| `S1` | Security fix | `pending` |
-| `S2` | Security fix | `pending` |
-| `S3` | Security fix | `pending` |
-| `S4` | Security fix | `pending` |
-| `S5` | Security fix | `pending` |
-| `S6` | Security fix | `pending` |
-| `S7` | Security fix | `pending` |
-| `U1` | UX fix | `pending` |
-| `U2` | UX fix | `pending` |
-| `U3` | UX fix | `pending` |
+| `S1` | Admin verify via `admins/{uid}` (60s cache) + remove hardcoded emails | `done` |
+| `S2` | Firebase Admin `verifyIdToken()` + signed `mangabd-session` cookie only | `done` |
+| `S3` | Mandatory `TELEGRAM_WEBHOOK_SECRET` in production (`503` if unset) | `done` |
+| `S4` | Remove `memoryLinkTokens` & silent code-5 masking → explicit `503` | `done` |
+| `S5` | Atomic link token consume inside Firestore `runTransaction` | `done` |
+| `S6` | Server upload cap `4MB` + `1` file per request | `done` |
+| `S7` | `firestore.rules` `isAdmin()` = `admins/{uid}` only (ready for PM review) | `done` |
+| `U1` | Branding unified to `MangaBD` (`package.json`, `SITE_CONFIG`, `mangabd-session`) | `done` |
+| `U2` | Adult mode gated OFF via `SITE_CONFIG.features.adultModeEnabled` (default `false`) | `done` |
+| `U3` | Client uploader: per-page, concurrency 3, retry 2, resume/partial-merge, >3.5MB WebP compress | `done` |
 
 ---
 
@@ -209,9 +209,9 @@
 ### Decision Log
 - **2026-11-17:** Approved Next.js + Firebase Firestore + Telegram CDN/Broadcast decoupled architecture.
 - **2026-11-18:** Decided to migrate from personal Firebase project to dedicated Business Firebase project `mangabd-prod` (`asia-south1`) + Vercel deployment.
-- **2026-11-19:** Established `PROJECT_CONTEXT.md` as single source of truth for PM ↔ Lead Engineer workflow.
+- **2026-11-19:** Established `PROJECT_CONTEXT.md` as single source of truth for PM ↔ Lead Engineer workflow; completed Round 2 security, upload, and branding hardening.
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
 - **2026-11-18:** Completed full Round 1 Audit Report (A1–A9) and Business Firebase Migration Guide (B1–B11).
-- **2026-11-19:** Created `PROJECT_CONTEXT.md`, verified `.gitignore`, and initialized baseline Git commit on `main`.
+- **2026-11-19:** Created `PROJECT_CONTEXT.md`, verified `.gitignore`, pushed baseline commit to `mangabd/mangabd`, and completed Round 2 security + upload + branding fixes.

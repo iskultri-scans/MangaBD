@@ -10,14 +10,14 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/avif',
 ]);
 
-// Telegram Bot API supports up to 20MB for standard file downloads via getFile
-const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
-const MAX_FILES_PER_REQUEST = 50;
+// Server cap: 4MB per page (Vercel serverless payload limit) and 1 file per request
+const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_FILES_PER_REQUEST = 1;
 
 export async function GET() {
   return NextResponse.json({
     configured: isTelegramStorageConfigured(),
-    maxFileSizeMB: 20,
+    maxFileSizeMB: 4,
     maxFilesPerRequest: MAX_FILES_PER_REQUEST,
   });
 }

@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+const SESSION_COOKIE_NAME = 'mangabd-session';
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only protect /admin routes (except /admin/login)
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
-    const sessionCookie = request.cookies.get('iskultrip-session')?.value;
+    const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
     if (!sessionCookie) {
       const loginUrl = new URL('/admin/login', request.url);
@@ -14,8 +16,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Note: Full session verification happens server-side in API routes
-    // Middleware just checks cookie existence for UX purposes
+    // Note: Full cryptographic session verification happens server-side in API routes
   }
 
   return NextResponse.next();
