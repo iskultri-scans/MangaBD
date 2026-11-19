@@ -12,6 +12,7 @@ import {
   orderBy,
   limit,
   Timestamp,
+  serverTimestamp,
   QueryConstraint,
 } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseDb } from './firebase';
@@ -404,17 +405,23 @@ export async function getChaptersByMangaId(mangaId: string): Promise<Chapter[]> 
   }
 }
 
-export async function addChapter(mangaId: string, data: Omit<Chapter, 'id'>): Promise<string> {
-  const docRef = await addDoc(collection(getFirebaseDb(), 'manga', mangaId, 'chapters'), {
-    ...data,
-    createdAt: Timestamp.now(),
-  });
+export async function addChapter(
+  mangaId: string,
+  data: Omit<Chapter, 'id' | 'createdAt'>
+): Promise<string> {
+  const docRef = await addDoc(
+    collection(getFirebaseDb(), 'manga', mangaId, 'chapters'),
+    removeUndefined({
+      ...data,
+      createdAt: serverTimestamp(),
+    })
+  );
 
   // Update totalChapters count on the manga document
   const chapters = await getChaptersByMangaId(mangaId);
   await updateDoc(doc(getFirebaseDb(), 'manga', mangaId), {
     totalChapters: chapters.length,
-    updatedAt: Timestamp.now(),
+    updatedAt: serverTimestamp(),
   });
 
   return docRef.id;
@@ -497,19 +504,23 @@ export interface BookmarkData {
 
 export async function addBookmark(userId: string, manga: Manga): Promise<void> {
   const bookmarkRef = doc(getFirebaseDb(), 'users', userId, 'bookmarks', manga.id);
-  await setDoc(bookmarkRef, {
-    mangaId: manga.id,
-    title: manga.title,
-    titleBn: manga.titleBn || null,
-    slug: manga.slug,
-    coverImage: manga.coverImage,
-    rating: manga.rating,
-    status: manga.status,
-    totalChapters: manga.totalChapters,
-    language: manga.language,
-    genres: manga.genres,
-    bookmarkedAt: Timestamp.now(),
-  }, { merge: true });
+  await setDoc(
+    bookmarkRef,
+    removeUndefined({
+      mangaId: manga.id,
+      title: manga.title,
+      ...(manga.titleBn ? { titleBn: manga.titleBn } : {}),
+      slug: manga.slug,
+      coverImage: manga.coverImage,
+      rating: manga.rating,
+      status: manga.status,
+      totalChapters: manga.totalChapters,
+      language: manga.language,
+      genres: manga.genres,
+      bookmarkedAt: serverTimestamp(),
+    }),
+    { merge: true }
+  );
 }
 
 export async function removeBookmark(userId: string, mangaId: string): Promise<void> {
@@ -743,13 +754,18 @@ export async function getAllUpcomingReleases(): Promise<UpcomingRelease[]> {
 
 // ─── User Requests ─────────────────────────────────────────
 
-export async function addRequest(data: Omit<MangaRequest, 'id'>): Promise<string> {
+export async function addRequest(
+  data: Omit<MangaRequest, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<string> {
   try {
-    const docRef = await addDoc(collection(getFirebaseDb(), 'requests'), removeUndefined({
-      ...data,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-    }));
+    const docRef = await addDoc(
+      collection(getFirebaseDb(), 'requests'),
+      removeUndefined({
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    );
     return docRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'requests');

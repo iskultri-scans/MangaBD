@@ -85,14 +85,12 @@ export default function RequestsPage() {
     try {
       await addRequest({
         mangaTitle: formTitle,
-        mangaTitleBn: formTitleBn || undefined,
+        ...(formTitleBn.trim() ? { mangaTitleBn: formTitleBn.trim() } : {}),
         description: formDescription,
         requestedBy: user.uid,
         status: 'pending',
         upvotes: 0,
         upvotedBy: [],
-        createdAt: undefined as unknown as never,
-        updatedAt: undefined as unknown as never,
       });
       showToast('Request submitted successfully!', 'success');
       setFormTitle('');

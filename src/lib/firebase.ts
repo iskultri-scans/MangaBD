@@ -49,7 +49,7 @@ async function testFirestoreConnection(db: ReturnType<typeof getFirestore>) {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('[Firebase] Firestore client is currently offline; will retry automatically.');
     }
   }
 }

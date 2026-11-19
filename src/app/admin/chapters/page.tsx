@@ -142,7 +142,6 @@ export default function AdminChaptersPage() {
         title: chapterTitle || `Chapter ${chapterNumber}`,
         chapterNumber: parseInt(chapterNumber),
         readLink: chapterLink,
-        createdAt: Timestamp.now(),
       });
 
       try {

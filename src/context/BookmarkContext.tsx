@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -105,7 +106,7 @@ export function BookmarkProvider({ children }: { children: React.ReactNode }) {
         const newBookmark: BookmarkData = {
           mangaId: manga.id,
           title: manga.title,
-          titleBn: manga.titleBn,
+          ...(manga.titleBn ? { titleBn: manga.titleBn } : {}),
           slug: manga.slug,
           coverImage: manga.coverImage,
           rating: manga.rating,
@@ -113,7 +114,7 @@ export function BookmarkProvider({ children }: { children: React.ReactNode }) {
           totalChapters: manga.totalChapters,
           language: manga.language,
           genres: manga.genres,
-          bookmarkedAt: null as any,
+          bookmarkedAt: Timestamp.now(),
         };
         setBookmarks((prev) => [newBookmark, ...prev]);
       }

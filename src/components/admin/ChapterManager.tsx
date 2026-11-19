@@ -220,7 +220,6 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         chapterNumber: chapterNum,
         readLink: effectiveReadLink,
         ...(uploadedPages.length > 0 ? { pages: uploadedPages } : {}),
-        createdAt: chapters.length > 0 ? chapters[0].createdAt : (new Date() as unknown as Chapter['createdAt']),
       });
 
       if (notifyTelegram) {
