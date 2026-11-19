@@ -1,0 +1,90 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ─── Dependencies ─────────────────────────────────────────
+node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ─── Testing ──────────────────────────────────────────────
+/coverage
+
+# ─── Next.js build output ─────────────────────────────────
+/.next/
+/out/
+
+# ─── Production ───────────────────────────────────────────
+/build
+
+# ─── Misc ─────────────────────────────────────────────────
+.DS_Store
+*.pem
+Thumbs.db
+
+# ─── Debug logs ───────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+dev.log
+dev.out.log
+server.log
+
+# ─── Environment files (NEVER commit these!) ──────────────
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# ─── Vercel ───────────────────────────────────────────────
+.vercel
+
+# ─── TypeScript ───────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ─── Local-only files ─────────────────────────────────────
+local-*
+.claude
+.z-ai-config
+
+# ─── Database (if you switch from Firestore in the future) ─
+*.db
+*.sqlite
+*.sqlite3
+
+# ─── Editor / IDE ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── OS files ─────────────────────────────────────────────
+.DS_Store
+desktop.ini
+
+# ─── Screenshots / uploads (not for the repo) ─────────────
+/upload/
+/uploads/
+
+# ─── Documentation that may contain secrets ───────────────
+/download/
+
+# ─── Firebase service account keys (CRITICAL: never commit!) ─
+serviceAccountKey.json
+*-firebase-adminsdk*.json
+firebase-service-account*.json
+
+# ─── Internal skill / agent folders (not part of this app) ─
+/skills/
+/.zscripts/
+/mini-services/
+
+# ─── Worklog (internal development log) ───────────────────
+worklog.md

@@ -1,0 +1,277 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (
+          request.auth.token.email_verified == true &&
+          (
+            request.auth.token.email == 'mahadyking351@gmail.com' ||
+            request.auth.token.email == 'bongmanga.official@gmail.com'
+          )
+        )
+      );
+    }
+
+    // ─── Validation Helpers ──────────────────────────────────
+    function isValidManga(data) {
+      return data.keys().hasAll(['title', 'slug', 'coverImage', 'genres', 'status', 'language']) &&
+        data.keys().hasOnly([
+          'title', 'titleBn', 'slug', 'description', 'coverImage', 'bannerImage',
+          'genres', 'author', 'artist', 'status', 'rating', 'totalChapters',
+          'language', 'readLink', 'featured', 'trending', 'isAdult', 'createdAt', 'updatedAt'
+        ]) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        (!('titleBn' in data) || (data.titleBn is string && data.titleBn.size() <= 200)) &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 200 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 10000)) &&
+        data.coverImage is string && data.coverImage.size() > 0 && data.coverImage.size() <= 1000 &&
+        (!('bannerImage' in data) || (data.bannerImage is string && data.bannerImage.size() <= 1000)) &&
+        data.genres is list && data.genres.size() <= 30 &&
+        (data.genres.size() == 0 || data.genres[0] is string) &&
+        (!('author' in data) || (data.author is string && data.author.size() <= 200)) &&
+        (!('artist' in data) || (data.artist is string && data.artist.size() <= 200)) &&
+        data.status in ['ongoing', 'completed', 'hiatus'] &&
+        (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 10)) &&
+        (!('totalChapters' in data) || (data.totalChapters is number && data.totalChapters >= 0)) &&
+        data.language in ['en', 'bn'] &&
+        (!('readLink' in data) || (data.readLink is string && data.readLink.size() <= 1000)) &&
+        (!('featured' in data) || data.featured is bool) &&
+        (!('trending' in data) || data.trending is bool) &&
+        (!('isAdult' in data) || data.isAdult is bool);
+    }
+
+    function isValidChapter(data) {
+      return data.keys().hasAll(['mangaId', 'title', 'chapterNumber', 'readLink']) &&
+        data.keys().hasOnly(['mangaId', 'title', 'chapterNumber', 'readLink', 'pages', 'createdAt']) &&
+        data.mangaId is string && data.mangaId.size() > 0 && data.mangaId.size() <= 128 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.chapterNumber is number && data.chapterNumber >= 0 &&
+        data.readLink is string && data.readLink.size() <= 1000 &&
+        (!('pages' in data) || (data.pages is list && data.pages.size() <= 300));
+    }
+
+    function isValidGenre(data) {
+      return data.keys().hasAll(['name', 'slug']) &&
+        data.keys().hasOnly(['name', 'slug', 'mangaCount']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100 &&
+        (!('mangaCount' in data) || (data.mangaCount is number && data.mangaCount >= 0));
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['title', 'content', 'type']) &&
+        data.keys().hasOnly([
+          'title', 'titleBn', 'content', 'contentBn', 'type',
+          'mangaId', 'coverImage', 'releaseDate', 'createdAt', 'updatedAt'
+        ]) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        (!('titleBn' in data) || (data.titleBn is string && data.titleBn.size() <= 200)) &&
+        data.content is string && data.content.size() > 0 && data.content.size() <= 20000 &&
+        (!('contentBn' in data) || (data.contentBn is string && data.contentBn.size() <= 20000)) &&
+        data.type in ['announcement', 'upcoming', 'update'] &&
+        (!('mangaId' in data) || (data.mangaId is string && data.mangaId.size() <= 128)) &&
+        (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 1000));
+    }
+
+    function isValidUpcomingRelease(data) {
+      return data.keys().hasAll(['title', 'releaseDate']) &&
+        data.keys().hasOnly([
+          'title', 'titleBn', 'mangaId', 'mangaSlug', 'coverImage',
+          'releaseDate', 'description', 'createdAt'
+        ]) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        (!('titleBn' in data) || (data.titleBn is string && data.titleBn.size() <= 200)) &&
+        (!('mangaId' in data) || (data.mangaId is string && data.mangaId.size() <= 128)) &&
+        (!('mangaSlug' in data) || (data.mangaSlug is string && data.mangaSlug.size() <= 200)) &&
+        (!('coverImage' in data) || (data.coverImage is string && data.coverImage.size() <= 1000)) &&
+        data.releaseDate is timestamp &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000));
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['title', 'message', 'type']) &&
+        data.keys().hasOnly([
+          'title', 'titleBn', 'message', 'messageBn', 'type',
+          'mangaId', 'mangaSlug', 'createdAt'
+        ]) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        (!('titleBn' in data) || (data.titleBn is string && data.titleBn.size() <= 200)) &&
+        data.message is string && data.message.size() > 0 && data.message.size() <= 1000 &&
+        (!('messageBn' in data) || (data.messageBn is string && data.messageBn.size() <= 1000)) &&
+        data.type in ['new_manga', 'new_chapter', 'announcement'] &&
+        (!('mangaId' in data) || (data.mangaId is string && data.mangaId.size() <= 128)) &&
+        (!('mangaSlug' in data) || (data.mangaSlug is string && data.mangaSlug.size() <= 200));
+    }
+
+    function isValidBookmark(data) {
+      return data.keys().hasAll(['mangaId', 'title', 'slug', 'coverImage']) &&
+        data.keys().hasOnly([
+          'mangaId', 'title', 'titleBn', 'slug', 'coverImage', 'rating',
+          'status', 'totalChapters', 'language', 'genres', 'bookmarkedAt'
+        ]) &&
+        data.mangaId is string && data.mangaId.size() > 0 && data.mangaId.size() <= 128 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        (data.titleBn == null || (data.titleBn is string && data.titleBn.size() <= 200)) &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 200 &&
+        data.coverImage is string && data.coverImage.size() <= 1000 &&
+        (!('genres' in data) || (data.genres is list && data.genres.size() <= 30));
+    }
+
+    function isValidRequest(data) {
+      return data.keys().hasAll(['mangaTitle', 'description', 'requestedBy', 'status', 'upvotes', 'upvotedBy']) &&
+        data.keys().hasOnly([
+          'mangaTitle', 'mangaTitleBn', 'description', 'requestedBy',
+          'status', 'upvotes', 'upvotedBy', 'adminNote', 'createdAt', 'updatedAt'
+        ]) &&
+        data.mangaTitle is string && data.mangaTitle.size() > 0 && data.mangaTitle.size() <= 200 &&
+        (!('mangaTitleBn' in data) || (data.mangaTitleBn is string && data.mangaTitleBn.size() <= 200)) &&
+        data.description is string && data.description.size() > 0 && data.description.size() <= 2000 &&
+        data.requestedBy is string && data.requestedBy.size() > 0 && data.requestedBy.size() <= 100 &&
+        data.status in ['pending', 'approved', 'completed', 'rejected'] &&
+        data.upvotes is number && data.upvotes >= 0 &&
+        data.upvotedBy is list && data.upvotedBy.size() <= 500 &&
+        (!('adminNote' in data) || (data.adminNote is string && data.adminNote.size() <= 1000));
+    }
+
+    function isValidUserProfileUpdate(data) {
+      return data.keys().hasOnly([
+          'email', 'displayName', 'telegramChatId', 'telegramUsername',
+          'telegramLinkedAt', 'notificationsEnabled', 'telegramBlocked', 'updatedAt'
+        ]) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120)) &&
+        (!('notificationsEnabled' in data) || data.notificationsEnabled is bool) &&
+        (!('telegramBlocked' in data) || data.telegramBlocked is bool);
+    }
+
+    // ─── Collection Rules ────────────────────────────────────
+
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && request.auth.uid == adminId;
+      allow list, write: if false;
+    }
+
+    match /manga/{mangaId} {
+      allow list: if true;
+      allow get: if isValidId(mangaId);
+      allow create: if isValidId(mangaId) && isAdmin() && isValidManga(incoming());
+      allow update: if isValidId(mangaId) && isAdmin() && isValidManga(incoming()) &&
+        incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(mangaId) && isAdmin();
+
+      match /chapters/{chapterId} {
+        allow list: if true;
+        allow get: if isValidId(mangaId) && isValidId(chapterId);
+        allow create: if isValidId(mangaId) && isValidId(chapterId) && isAdmin() &&
+          isValidChapter(incoming()) &&
+          incoming().mangaId == mangaId &&
+          exists(/databases/$(database)/documents/manga/$(mangaId));
+        allow update: if isValidId(mangaId) && isValidId(chapterId) && isAdmin() &&
+          isValidChapter(incoming()) &&
+          incoming().mangaId == existing().mangaId;
+        allow delete: if isValidId(mangaId) && isValidId(chapterId) && isAdmin();
+      }
+    }
+
+    match /genres/{genreId} {
+      allow list: if true;
+      allow get: if isValidId(genreId);
+      allow create, update: if isValidId(genreId) && isAdmin() && isValidGenre(incoming());
+      allow delete: if isValidId(genreId) && isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow list: if true;
+      allow get: if isValidId(announcementId);
+      allow create: if isValidId(announcementId) && isAdmin() && isValidAnnouncement(incoming());
+      allow update: if isValidId(announcementId) && isAdmin() && isValidAnnouncement(incoming()) &&
+        incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(announcementId) && isAdmin();
+    }
+
+    match /upcomingReleases/{upcomingReleaseId} {
+      allow list: if true;
+      allow get: if isValidId(upcomingReleaseId);
+      allow create, update: if isValidId(upcomingReleaseId) && isAdmin() && isValidUpcomingRelease(incoming());
+      allow delete: if isValidId(upcomingReleaseId) && isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow list: if true;
+      allow get: if isValidId(notificationId);
+      allow create, update: if isValidId(notificationId) && isAdmin() && isValidNotification(incoming());
+      allow delete: if isValidId(notificationId) && isAdmin();
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isSignedIn() && request.auth.uid == userId &&
+        isValidUserProfileUpdate(incoming()) &&
+        !('telegramChatId' in incoming()) &&
+        !('telegramLinkedAt' in incoming());
+      allow update: if isValidId(userId) && isSignedIn() && request.auth.uid == userId &&
+        isValidUserProfileUpdate(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'notificationsEnabled', 'updatedAt']);
+      allow delete: if false;
+
+      match /bookmarks/{bookmarkId} {
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isValidId(userId) && isValidId(bookmarkId) && isSignedIn() && request.auth.uid == userId;
+        allow create, update: if isValidId(userId) && isValidId(bookmarkId) && isSignedIn() &&
+          request.auth.uid == userId && isValidBookmark(incoming());
+        allow delete: if isValidId(userId) && isValidId(bookmarkId) && isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /telegramLinkTokens/{tokenId} {
+      allow read, write: if false;
+    }
+
+    match /broadcastLogs/{logId} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
+
+    match /requests/{requestId} {
+      allow list: if true;
+      allow get: if isValidId(requestId);
+      allow create: if isValidId(requestId) && isValidRequest(incoming()) &&
+        incoming().status == 'pending' && incoming().upvotes == 0;
+      allow update: if isValidId(requestId) && isValidRequest(incoming()) && (
+        isAdmin() ||
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['upvotes', 'upvotedBy', 'updatedAt']) &&
+          incoming().status == existing().status &&
+          incoming().mangaTitle == existing().mangaTitle
+        )
+      );
+      allow delete: if isValidId(requestId) && isAdmin();
+    }
+  }
+}

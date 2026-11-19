@@ -1,0 +1,232 @@
+{
+  "entities": {
+    "Manga": {
+      "title": "Manga",
+      "description": "A manga series entry in the directory.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "titleBn": { "type": "string", "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 200, "pattern": "^[a-z0-9-]+$" },
+        "description": { "type": "string", "maxLength": 10000 },
+        "coverImage": { "type": "string", "maxLength": 1000 },
+        "bannerImage": { "type": "string", "maxLength": 1000 },
+        "genres": { "type": "array" },
+        "author": { "type": "string", "maxLength": 200 },
+        "artist": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["ongoing", "completed", "hiatus"] },
+        "rating": { "type": "number" },
+        "totalChapters": { "type": "number" },
+        "language": { "type": "string", "enum": ["en", "bn"] },
+        "readLink": { "type": "string", "maxLength": 1000 },
+        "featured": { "type": "boolean" },
+        "trending": { "type": "boolean" },
+        "isAdult": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "slug", "coverImage", "genres", "status", "language"]
+    },
+    "Chapter": {
+      "title": "Chapter",
+      "description": "A chapter belonging to a manga series.",
+      "type": "object",
+      "properties": {
+        "mangaId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "chapterNumber": { "type": "number" },
+        "readLink": { "type": "string", "maxLength": 1000 },
+        "pages": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["mangaId", "title", "chapterNumber", "readLink"]
+    },
+    "Genre": {
+      "title": "Genre",
+      "description": "A manga genre category.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "slug": { "type": "string", "maxLength": 100, "pattern": "^[a-z0-9-]+$" },
+        "mangaCount": { "type": "number" }
+      },
+      "required": ["name", "slug"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "A blog post or site announcement.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "titleBn": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 20000 },
+        "contentBn": { "type": "string", "maxLength": 20000 },
+        "type": { "type": "string", "enum": ["announcement", "upcoming", "update"] },
+        "mangaId": { "type": "string", "maxLength": 128 },
+        "coverImage": { "type": "string", "maxLength": 1000 },
+        "releaseDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "type"]
+    },
+    "UpcomingRelease": {
+      "title": "UpcomingRelease",
+      "description": "A scheduled upcoming manga or chapter release.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "titleBn": { "type": "string", "maxLength": 200 },
+        "mangaId": { "type": "string", "maxLength": 128 },
+        "mangaSlug": { "type": "string", "maxLength": 200 },
+        "coverImage": { "type": "string", "maxLength": 1000 },
+        "releaseDate": { "type": "string", "format": "date-time" },
+        "description": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "releaseDate"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Site-wide notification for new manga, chapters, or announcements.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "titleBn": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "messageBn": { "type": "string", "maxLength": 1000 },
+        "type": { "type": "string", "enum": ["new_manga", "new_chapter", "announcement"] },
+        "mangaId": { "type": "string", "maxLength": 128 },
+        "mangaSlug": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "message", "type"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "A user's saved manga bookmark.",
+      "type": "object",
+      "properties": {
+        "mangaId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "titleBn": { "type": "string", "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "coverImage": { "type": "string", "maxLength": 1000 },
+        "rating": { "type": "number" },
+        "status": { "type": "string", "enum": ["ongoing", "completed", "hiatus"] },
+        "totalChapters": { "type": "number" },
+        "language": { "type": "string", "enum": ["en", "bn"] },
+        "genres": { "type": "array" },
+        "bookmarkedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["mangaId", "title", "slug", "coverImage"]
+    },
+    "MangaRequest": {
+      "title": "MangaRequest",
+      "description": "A community translation request submitted by readers.",
+      "type": "object",
+      "properties": {
+        "mangaTitle": { "type": "string", "maxLength": 200 },
+        "mangaTitleBn": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "requestedBy": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["pending", "approved", "completed", "rejected"] },
+        "upvotes": { "type": "number" },
+        "upvotedBy": { "type": "array" },
+        "adminNote": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["mangaTitle", "description", "requestedBy", "status", "upvotes", "upvotedBy"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile storing Telegram link and notification preferences.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "telegramChatId": { "type": "string", "maxLength": 64 },
+        "telegramUsername": { "type": "string", "maxLength": 100 },
+        "telegramLinkedAt": { "type": "string", "format": "date-time" },
+        "notificationsEnabled": { "type": "boolean" },
+        "telegramBlocked": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "TelegramLinkToken": {
+      "title": "TelegramLinkToken",
+      "description": "Server-only single-use token linking a Google user to a Telegram chat ID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "used": { "type": "boolean" }
+      },
+      "required": ["userId", "expiresAt", "used"]
+    },
+    "BroadcastLog": {
+      "title": "BroadcastLog",
+      "description": "Audit log of Telegram channel and DM broadcasts.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["chapter", "announcement"] },
+        "mangaId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "channelSent": { "type": "boolean" },
+        "dmTargeted": { "type": "number" },
+        "dmSent": { "type": "number" },
+        "dmFailed": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "title", "channelSent", "dmSent", "dmFailed"]
+    }
+  },
+  "firestore": {
+    "/manga/{mangaId}": {
+      "schema": { "$ref": "#/entities/Manga" },
+      "description": "Manga catalog entries."
+    },
+    "/manga/{mangaId}/chapters/{chapterId}": {
+      "schema": { "$ref": "#/entities/Chapter" },
+      "description": "Chapters subcollection under each manga."
+    },
+    "/genres/{genreId}": {
+      "schema": { "$ref": "#/entities/Genre" },
+      "description": "Manga genre taxonomy."
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Blog posts and announcements."
+    },
+    "/upcomingReleases/{upcomingReleaseId}": {
+      "schema": { "$ref": "#/entities/UpcomingRelease" },
+      "description": "Upcoming manga and chapter countdowns."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Site-wide activity notifications."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile and Telegram notification settings."
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/Bookmark" },
+      "description": "User-private manga bookmarks."
+    },
+    "/telegramLinkTokens/{tokenId}": {
+      "schema": { "$ref": "#/entities/TelegramLinkToken" },
+      "description": "Server-only temporary tokens for Telegram account linking."
+    },
+    "/broadcastLogs/{logId}": {
+      "schema": { "$ref": "#/entities/BroadcastLog" },
+      "description": "Admin audit trail for Telegram broadcasts."
+    },
+    "/requests/{requestId}": {
+      "schema": { "$ref": "#/entities/MangaRequest" },
+      "description": "Community manga translation requests."
+    }
+  }
+}
