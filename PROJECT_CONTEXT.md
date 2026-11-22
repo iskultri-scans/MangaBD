@@ -70,6 +70,7 @@
 
 ## 7. Rules (LOCKED)
 - সেশন শুরুতে `git fetch` করে `HEAD` vs `origin` মিলাও; `.git` না থাকলে থামো, রিপোর্ট করো — নতুন টোকেনে re-clone হবে।
+- **Dual-Push & Mirror Workflow (LOCKED):** Business repo `origin` (`https://github.com/mangabd/mangabd.git`) হলো **source of truth**, এবং personal private repo `mirror` (`https://github.com/iskultri-scans/mangabd.git`) হলো **deploy-only mirror** (personal Vercel অ্যাকাউন্ট `iskultri-scans`-এর সাথে connected থাকায় `mirror`-এ push হলেই auto-deploy ট্রিগার হয়)। প্রতিটি commit অবশ্যই দুই remote-এ (`origin` + `mirror`) push করতে হবে এবং কখনো `.git/config`-এ token সেভ রাখা যাবে না।
 - Adult কনটেন্ট আপলোড নিষেধ।
 - Never fabricate code or deployment state; verify against the actual repository.
 - Never print secrets (tokens, private keys, service account JSON, API keys) in chat, commits, or docs.
@@ -214,6 +215,7 @@
 - **2026-11-19:** Established `PROJECT_CONTEXT.md` as single source of truth for PM ↔ Lead Engineer workflow; completed Round 2 security, upload, and branding hardening.
 - **2026-11-19 (P2 Reminder):** P2 premium ফিচার ইমপ্লিমেন্ট করার সময় `firestore.rules`-এর `hasOnly` whitelist-এ `isPremium` / `unlock` ফিল্ডগুলো যোগ করতে হবে।
 - **2026-11-19 (Vote Cap Note):** `requests` collection-এ `upvotedBy.size() <= 500` ক্যাপ আছে (৫০০ ভোটের পর upvote বন্ধ — গ্রহণযোগ্য)।
+- **2026-11-22 (Mirror Auto-Deploy):** Decided to keep `mangabd/mangabd` (`origin`) as business source of truth and `iskultri-scans/mangabd` (`mirror`) as deploy-only private mirror for Vercel auto-deploy; all commits must be dual-pushed to `origin` and `mirror`.
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
@@ -222,3 +224,5 @@
 - **2026-11-19 (Round 2.5):** Google OAuth only (removed email/password auth), `DELETE /api/admin/session` on signOut, 24h session cookie expiry, clean `config.ts` defaults, removed unused `next-auth`/`uuid`/`z-ai-web-dev-sdk`, added `NEXT_PUBLIC_ENABLE_ADULT_MODE` to `.env.example`, updated `PROJECT_CONTEXT.md`.
 - **2026-11-19 (Round 3):** Hardened `firestore.rules` (`requests` 1-UID-1-vote + symmetric unvote, `isValidBookmark` optional `titleBn`, `users` create blocks `telegramUsername`/`telegramBlocked`), enforced non-null Bearer token in admin client callers, added internal reader `readLink` fallback in `ChapterManager`.
 - **2026-11-19 (Round 3.5):** Fixed `addChapter`/`addBookmark`/`addRequest` to use `serverTimestamp()` and clean types (removed `chapters[0].createdAt` copy, `undefined as unknown as never` hacks, and `bookmarkedAt: null as any`), documented 500-vote cap in `PROJECT_CONTEXT.md`.
+- **2026-11-20:** Updated `firebase-applet-config.json` for `mangabd-prod` (`(default)` DB), added `firebase.json`, and deployed `firestore.rules` + `firestore.indexes.json` to `mangabd-prod`.
+- **2026-11-22:** Configured `mirror` remote (`iskultri-scans/mangabd`) and documented the dual-push auto-deploy workflow in `PROJECT_CONTEXT.md`.
