@@ -71,6 +71,7 @@
 ## 7. Rules (LOCKED)
 - সেশন শুরুতে `git fetch` করে `HEAD` vs `origin` মিলাও; `.git` না থাকলে থামো, রিপোর্ট করো — নতুন টোকেনে re-clone হবে।
 - **Dual-Push & Mirror Workflow (LOCKED):** Business repo `origin` (`https://github.com/mangabd/mangabd.git`) হলো **source of truth**, এবং personal private repo `mirror` (`https://github.com/iskultri-scans/mangabd.git`) হলো **deploy-only mirror** (personal Vercel অ্যাকাউন্ট `iskultri-scans`-এর সাথে connected থাকায় `mirror`-এ push হলেই auto-deploy ট্রিগার হয়)। প্রতিটি commit অবশ্যই দুই remote-এ (`origin` + `mirror`) push করতে হবে এবং কখনো `.git/config`-এ token সেভ রাখা যাবে না।
+- **Commit Author Identity (LOCKED):** প্রতি সেশনে প্রতিটি commit অবশ্যই repo মালিকের identity-তে করতে হবে: `git config user.name "mangabd"` এবং `git config user.email "mangabd99@gmail.com"` (অন্য author যেমন `mahady1212` দিলে Vercel Hobby + private repo auto-deploy ব্লক হয়)।
 - Adult কনটেন্ট আপলোড নিষেধ।
 - Never fabricate code or deployment state; verify against the actual repository.
 - Never print secrets (tokens, private keys, service account JSON, API keys) in chat, commits, or docs.
@@ -219,6 +220,7 @@
 - **2026-11-22 (Mirror Auto-Deploy):** Decided to keep `mangabd/mangabd` (`origin`) as business source of truth and `iskultri-scans/mangabd` (`mirror`) as deploy-only private mirror for Vercel auto-deploy; all commits must be dual-pushed to `origin` and `mirror`.
 - **2026-11-23 (Round 4 — Internal Reader):** Added dedicated public reader route `/read/[slug]/[chapter]` rendering Telegram CDN pages via `/api/image/[fileId]` with next-2-page preloading and retry, while preserving external `readLink` fallback for legacy/external chapters.
 - **2026-11-23 (Round 5 — Audit, Restore & Polish):** Unified `/admin/chapters` by reusing `<ChapterManager />`, upgraded metadata auto-fill to public multi-source cascade (`Jikan/MAL → AniList → MangaDex`) with inline title lookup, cleaned up leftover `ISKULTRIP` branding/cookies, and added client JPEG compression fallback, Telegram `429` retry + `AbortSignal.timeout`, atomic `runTransaction` request upvotes, and auto-polling in `TelegramConnectCard`.
+- **2026-11-23 (Commit Identity Rule):** Locked commit author identity to repo owner (`mangabd <mangabd99@gmail.com>`) to prevent Vercel Hobby + private repo deployment blocks triggered by mismatched commit authors.
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
@@ -235,3 +237,4 @@
   - `B2`: Upgraded `/api/manga/search`, `/api/manga/detail`, `src/lib/jikan.ts`, `MangaForm.tsx`, and `/admin/manga/add` with `Jikan (MAL) → AniList → MangaDex` cascade, open-by-default search on Add Manga, debounced title auto-fill, and manual fallback.
   - `B3`: Rewrote `README.md` for MangaBD (Adult Mode OFF, Google-only, Telegram CDN, internal reader), cleaned `scripts/*.js` branding, fixed `admin/layout.tsx` signOut to clear `mangabd-session`, aligned `src/app/page.tsx` cookies (`mangabd-*` + `adultModeEnabled`), and hid disabled adult toggle in `MobileMenu.tsx`.
   - `B4`: Added WebP→JPEG(+scale) fallback in `ChapterManager`, `429` `retry_after` + `AbortSignal.timeout` in `src/lib/telegram.ts`, atomic `runTransaction` in `upvoteRequest` (`src/lib/firestore.ts`), and background auto-poll + focus/visibility refresh in `TelegramConnectCard.tsx`.
+- **2026-11-23 (Commit Identity Fix):** Documented mandatory git commit identity (`mangabd <mangabd99@gmail.com>`) in `PROJECT_CONTEXT.md` rules and changelog.
