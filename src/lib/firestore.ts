@@ -13,6 +13,7 @@ import {
   limit,
   Timestamp,
   serverTimestamp,
+  runTransaction,
   QueryConstraint,
 } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseDb } from './firebase';
@@ -799,25 +800,30 @@ export async function deleteRequest(id: string): Promise<void> {
 
 export async function upvoteRequest(id: string, userId: string): Promise<void> {
   const reqDoc = doc(getFirebaseDb(), 'requests', id);
-  const snap = await getDoc(reqDoc);
-  if (!snap.exists()) return;
 
-  const data = snap.data() as MangaRequest;
-  const upvotedBy = data.upvotedBy || [];
+  await runTransaction(getFirebaseDb(), async (tx) => {
+    const snap = await tx.get(reqDoc);
+    if (!snap.exists()) return;
 
-  if (upvotedBy.includes(userId)) {
-    // Remove upvote
-    await updateDoc(reqDoc, {
-      upvotes: Math.max(0, (data.upvotes || 0) - 1),
-      upvotedBy: upvotedBy.filter((u) => u !== userId),
-      updatedAt: Timestamp.now(),
-    });
-  } else {
-    // Add upvote
-    await updateDoc(reqDoc, {
-      upvotes: (data.upvotes || 0) + 1,
-      upvotedBy: [...upvotedBy, userId],
-      updatedAt: Timestamp.now(),
-    });
-  }
+    const data = snap.data() as MangaRequest;
+    const upvotedBy = Array.isArray(data.upvotedBy) ? data.upvotedBy : [];
+    const currentUpvotes = typeof data.upvotes === 'number' ? data.upvotes : upvotedBy.length;
+
+    if (upvotedBy.includes(userId)) {
+      tx.update(reqDoc, {
+        upvotes: Math.max(0, currentUpvotes - 1),
+        upvotedBy: upvotedBy.filter((u) => u !== userId),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      if (upvotedBy.length >= 500) {
+        throw new Error('Maximum upvote limit (500) reached for this request.');
+      }
+      tx.update(reqDoc, {
+        upvotes: currentUpvotes + 1,
+        upvotedBy: [...upvotedBy, userId],
+        updatedAt: serverTimestamp(),
+      });
+    }
+  });
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2, RefreshCw } from 'lucide-react';
 import {
   addChapter,
@@ -17,17 +17,27 @@ interface ChapterManagerProps {
   mangaId: string;
   mangaTitle: string;
   mangaSlug?: string;
+  defaultOpenAdd?: boolean;
 }
 
 const UPLOAD_CONCURRENCY = 3;
 const MAX_RETRIES = 2;
-const COMPRESS_THRESHOLD_BYTES = 3.5 * 1024 * 1024; // 3.5MB -> compress to WebP on client
+const COMPRESS_THRESHOLD_BYTES = 3.5 * 1024 * 1024; // 3.5MB -> compress on client
 const SERVER_MAX_BYTES = 4 * 1024 * 1024; // 4MB server cap
 
+async function encodeCanvasBlob(
+  canvas: HTMLCanvasElement,
+  mimeType: string,
+  quality: number
+): Promise<Blob | null> {
+  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mimeType, quality));
+}
+
 /**
- * Compresses an image file > 3.5MB to WebP using Canvas so it stays under the 4MB server cap.
+ * Compresses an image file > 3.5MB using Canvas (WebP first, then JPEG fallback,
+ * plus one gentle 0.75x downscale pass if still above 4MB) so it stays under the 4MB server cap.
  */
-async function compressToWebPIfNeeded(file: File): Promise<File> {
+async function compressImageIfNeeded(file: File): Promise<File> {
   if (file.size <= COMPRESS_THRESHOLD_BYTES) return file;
 
   const bitmap = await createImageBitmap(file);
@@ -43,13 +53,36 @@ async function compressToWebPIfNeeded(file: File): Promise<File> {
   bitmap.close();
 
   const qualities = [0.85, 0.72, 0.58];
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+
+  // 1) Try WebP
   for (const q of qualities) {
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/webp', q)
-    );
+    const blob = await encodeCanvasBlob(canvas, 'image/webp', q);
     if (blob && blob.size <= SERVER_MAX_BYTES) {
-      const webpName = file.name.replace(/\.[^.]+$/, '') + '.webp';
-      return new File([blob], webpName, { type: 'image/webp' });
+      return new File([blob], `${baseName}.webp`, { type: 'image/webp' });
+    }
+  }
+
+  // 2) Fallback to JPEG (handles browsers/images where WebP encoder fails or produces larger output)
+  for (const q of qualities) {
+    const blob = await encodeCanvasBlob(canvas, 'image/jpeg', q);
+    if (blob && blob.size <= SERVER_MAX_BYTES) {
+      return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
+    }
+  }
+
+  // 3) Final downscale fallback (0.75x) + JPEG if ultra-high resolution
+  const scaledCanvas = document.createElement('canvas');
+  scaledCanvas.width = Math.max(1, Math.round(canvas.width * 0.75));
+  scaledCanvas.height = Math.max(1, Math.round(canvas.height * 0.75));
+  const scaledCtx = scaledCanvas.getContext('2d');
+  if (scaledCtx) {
+    scaledCtx.drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+    for (const q of [0.82, 0.68]) {
+      const blob = await encodeCanvasBlob(scaledCanvas, 'image/jpeg', q);
+      if (blob && blob.size <= SERVER_MAX_BYTES) {
+        return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
+      }
     }
   }
 
@@ -60,11 +93,16 @@ async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManagerProps) {
+export function ChapterManager({
+  mangaId,
+  mangaTitle,
+  mangaSlug,
+  defaultOpenAdd = false,
+}: ChapterManagerProps) {
   const { user } = useAuth();
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(defaultOpenAdd);
   const [newChapterNumber, setNewChapterNumber] = useState('');
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [newChapterLink, setNewChapterLink] = useState('');
@@ -79,20 +117,34 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
-  const fetchChapters = async () => {
+  const fetchChapters = useCallback(async (prefillNextNumber = false) => {
+    setLoading(true);
     try {
       const data = await getChaptersByMangaId(mangaId);
       setChapters(data);
+      if (prefillNextNumber) {
+        const nextNum =
+          data.length > 0 ? Math.max(...data.map((c) => Number(c.chapterNumber) || 0)) + 1 : 1;
+        setNewChapterNumber(String(nextNum));
+      }
     } catch (error) {
       console.error('Error fetching chapters:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [mangaId]);
 
   useEffect(() => {
-    fetchChapters();
-  }, [mangaId]);
+    setShowAddForm(defaultOpenAdd);
+    setNewChapterNumber('');
+    setNewChapterTitle('');
+    setNewChapterLink('');
+    setSelectedFiles([]);
+    setUploadedPagesMap({});
+    setUploadProgress(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    fetchChapters(defaultOpenAdd);
+  }, [mangaId, defaultOpenAdd, fetchChapters]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -106,7 +158,7 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
     pageNumber: number,
     authHeaders: Record<string, string>
   ): Promise<ChapterPage> => {
-    const preparedFile = await compressToWebPIfNeeded(file);
+    const preparedFile = await compressImageIfNeeded(file);
     let lastError: Error = new Error(`Page ${pageNumber} upload failed`);
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -266,15 +318,15 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         showToast('Chapter added!', 'success');
       }
 
-      setNewChapterNumber('');
+      setNewChapterNumber(String(chapterNum + 1));
       setNewChapterTitle('');
       setNewChapterLink('');
       setSelectedFiles([]);
       setUploadedPagesMap({});
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      setShowAddForm(false);
-      fetchChapters();
+      if (!defaultOpenAdd) setShowAddForm(false);
+      fetchChapters(false);
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Failed to add chapter', 'error');
     } finally {
@@ -289,7 +341,7 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
       await deleteChapter(mangaId, deleteTarget.id);
       showToast('Chapter deleted!', 'success');
       setDeleteTarget(null);
-      fetchChapters();
+      fetchChapters(false);
     } catch {
       showToast('Failed to delete chapter', 'error');
     } finally {
@@ -310,6 +362,9 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
     Object.keys(uploadedPagesMap).length > 0 &&
     Object.keys(uploadedPagesMap).length < selectedFiles.length;
 
+  const suggestedNextChapter =
+    chapters.length > 0 ? Math.max(...chapters.map((c) => Number(c.chapterNumber) || 0)) + 1 : 1;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -319,23 +374,40 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
         </h3>
         <button
           type="button"
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            const nextOpen = !showAddForm;
+            setShowAddForm(nextOpen);
+            if (nextOpen && !newChapterNumber) {
+              setNewChapterNumber(String(suggestedNextChapter));
+            }
+          }}
           className="btn-accent flex items-center gap-1.5 text-xs py-2 px-3.5 cursor-pointer"
         >
-          <Plus size={14} /> Add Chapter
+          <Plus size={14} /> {showAddForm ? 'Hide Form' : 'Add Chapter'}
         </button>
       </div>
 
       {showAddForm && (
-        <div className="p-4 rounded-xl mb-4 space-y-3.5 border border-[var(--border-color)] bg-[var(--bg-secondary)]">
+        <div className="p-4 sm:p-5 rounded-xl mb-5 space-y-3.5 border border-[var(--border-color)] bg-[var(--bg-secondary)]">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-[var(--text-muted)] mb-1 block">Chapter Number *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-[var(--text-muted)]">Chapter Number *</label>
+                {!newChapterNumber && (
+                  <button
+                    type="button"
+                    onClick={() => setNewChapterNumber(String(suggestedNextChapter))}
+                    className="text-[11px] font-mono-num text-[var(--accent)] hover:underline cursor-pointer"
+                  >
+                    Suggest #{suggestedNextChapter}
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
                 value={newChapterNumber}
                 onChange={(e) => setNewChapterNumber(e.target.value)}
-                placeholder="1"
+                placeholder={String(suggestedNextChapter)}
                 className={`${inputClass} font-mono-num`}
                 min="1"
               />
@@ -346,7 +418,7 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
                 type="text"
                 value={newChapterTitle}
                 onChange={(e) => setNewChapterTitle(e.target.value)}
-                placeholder="Chapter Title"
+                placeholder="Chapter Title (optional)"
                 className={inputClass}
               />
             </div>
@@ -355,7 +427,7 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
           <div>
             <label className="text-xs text-[var(--text-muted)] mb-1.5 flex items-center gap-1.5">
               <Upload size={12} className="text-[var(--accent)]" />
-              Chapter Pages (Telegram CDN — auto-WebP if &gt;3.5MB, 4MB server cap)
+              Chapter Pages (Telegram CDN — auto-compressed WebP/JPEG if &gt;3.5MB, 4MB server cap)
             </label>
             <input
               ref={fileInputRef}

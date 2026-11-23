@@ -1,33 +1,30 @@
-# ISKULTRIP SCANS
+# MangaBD
 
-বাংলায় মাঙ্গা পড়ুন — Read manga in Bengali.
+বাংলায় ও ইংরেজিতে মাঙ্গা পড়ুন — Read Bengali & English manga on MangaBD.
 
-A Next.js 16 + Firebase + Tailwind CSS manga reader with **Adult Mode / Family Mode** content filtering, designed primarily for Bangladeshi readers.
+A Next.js 16 + Firebase + Tailwind CSS v4 manga directory and reader platform with **Telegram CDN chapter hosting**, **built-in vertical-scroll reader**, **Google OAuth**, and **Telegram Bot channel/DM alerts**.
 
 ---
 
 ## ✨ Features
 
-- **🔍 Browse & Search** — Filter by genre, language, status, sort by newest / rating / A-Z
-- **📚 Manga details** — Cover, banner, synopsis, author/artist, genre tags, chapter list (links to Google Drive PDFs)
-- **🔖 Bookmarks** — Save manga locally (guest) or to Firestore (logged-in users), auto-migrate from local to cloud
-- **🔞 Adult Mode / Family Mode** — Toggle in navbar. Family Mode hides 18+ content entirely; Adult Mode (with age verification) shows everything with badges
-- **🏠 Server-rendered home page** — ISR for SEO + fast LCP
-- **📱 PWA** — Installable, offline-capable, with manifest and service worker
-- **🎨 Dark / Light theme** — Auto-detect + manual toggle
-- **🔔 Notifications** — In-app bell for new manga/chapters/announcements
-- **📝 Manga requests** — Users can request new manga, upvote others' requests
-- **📅 Upcoming releases** — Countdown to scheduled manga drops
-- **🛡️ Admin panel** — Manage manga, chapters, genres, announcements, requests (admin-only via Firestore rules)
+- **📖 Built-in Chapter Reader (`/read/[slug]/[chapter]`)** — Vertical-scroll reader streaming hosted chapter pages via `/api/image/[fileId]` with lazy loading, next-2-page preloading, per-page retry, sticky chapter navigation, and external fallback for legacy links
+- **🔍 Browse & Search** — Filter by genre, language (`EN`/`BN`), status, and sort by newest / rating / A-Z
+- **📚 Manga Details & Metadata Auto-Fill** — Cover, banner, synopsis, author/artist, genre tags, and chapter list, with admin auto-fill powered by public MAL (Jikan), AniList, and MangaDex APIs
+- **🔖 Cloud Bookmarks** — Save manga locally (guest) or to Firestore (signed-in Google accounts)
+- **📲 Telegram CDN & Instant Alerts** — Admin chapter uploader compresses >3.5MB pages to WebP/JPEG, uploads to a private Telegram Storage Channel, broadcasts to the Main Channel, and sends targeted DM alerts to linked readers who bookmarked the series
+- **🛡️ Feature-Flagged Content Filtering** — Adult Mode is disabled by default (`NEXT_PUBLIC_ENABLE_ADULT_MODE=false`), keeping the catalog strictly family-safe across SSR and client views
+- **📱 PWA & Responsive UI** — Installable manifest, service worker, and Dark Ink / Light Paper themes
+- **📝 Community Requests & Journal** — Signed-in readers can request titles, upvote atomically (1 vote per UID), and follow upcoming releases
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+
-- A Firebase project (Blaze plan recommended for Admin SDK)
-- Google Drive for hosting chapter PDFs
+- Node.js 20+
+- Firebase project (`mangabd-prod`, Firestore Native mode + Google Auth enabled)
+- Telegram Bot token + Private Storage Channel + Main Broadcast Channel (optional for local UI browsing, required for CDN uploads/broadcasts)
 
 ### Install & Run
 
@@ -37,96 +34,71 @@ npm install
 
 # 2. Set up environment
 cp .env.example .env.local
-# Edit .env.local with your Firebase credentials
+# Fill in Firebase Client, Firebase Admin, and Telegram server environment variables
 
 # 3. Run dev server
 npm run dev
 ```
 
-Visit http://localhost:3000
+Visit `http://localhost:3000`.
 
 ### Deploy to Vercel
 
-1. Push to GitHub (DO NOT include `.env.local`)
-2. Import repo on https://vercel.com
-3. Add environment variables in Vercel project settings (see `.env.example`)
-4. Deploy
+1. Push commits to both `origin` (`mangabd/mangabd`) and `mirror` (`iskultri-scans/mangabd`) — never commit `.env.local` or secrets
+2. Configure environment variables in Vercel project settings (see `.env.example` and `PROJECT_CONTEXT.md`)
+3. Vercel auto-deploys from `mirror`
 
 ---
 
 ## 🔐 Security Notes
 
-- **Firestore rules**: Only the admin email can write to public collections. Anyone can read.
-- **Admin access**: Controlled by `NEXT_PUBLIC_ADMIN_EMAIL` env var (matched against Firebase auth email)
-- **Adult Mode**: Stored in both `localStorage` AND a cookie — the cookie lets the server filter adult content during SSR for SEO safety
-- **Service worker**: Does NOT cache `/bookmarks` (auth-required page)
-- **CSP**: `unsafe-eval` removed; `unsafe-inline` kept temporarily (migrate to nonce-based CSP later)
+- **Authentication**: Google OAuth only (`signInWithPopup`).
+- **Admin Access**: Verified via Firestore `admins/{uid}` documents in both `firestore.rules` and server-side API routes (`verifyIdToken` + signed `mangabd-session` HttpOnly cookie).
+- **Telegram CDN Privacy**: `TELEGRAM_BOT_TOKEN` never leaves the server; `/api/image/[fileId]` streams images server-side without exposing Telegram `file_path` URLs.
+- **Adult Mode Feature Flag**: `NEXT_PUBLIC_ENABLE_ADULT_MODE` defaults to `false`. Both SSR (`src/app/page.tsx`) and client UI (`ContentModeContext`, `ContentModeToggle`) keep Adult Mode disabled unless explicitly enabled.
 
 ---
 
 ## 📂 Project Structure
 
-```
+```text
 src/
-├── app/                      # Next.js App Router
-│   ├── page.tsx              # Home (Server Component + ISR)
-│   ├── manga/[slug]/         # Manga detail page (Server + Client)
-│   ├── browse/               # Browse all manga
-│   ├── search/               # Search page
-│   ├── genre/[slug]/         # Genre filter page
-│   ├── bookmarks/            # User bookmarks
-│   ├── requests/             # Manga requests
-│   ├── blog/                 # Blog
-│   ├── admin/                # Admin panel
-│   ├── api/                  # API routes
-│   └── layout.tsx            # Root layout with all providers
-├── components/
-│   ├── layout/               # Navbar, Footer, ContentModeToggle, AgeVerificationModal
-│   ├── manga/                # MangaCard, MangaGrid, MangaDetail, AdultBadge, etc.
-│   ├── home/                 # HomeContent, HeroBanner, TrendingSection, etc.
-│   ├── admin/                # MangaForm, ChapterManager, etc.
-│   └── ui/                   # shadcn/ui primitives
-├── context/                  # AuthContext, BookmarkContext, ContentModeContext, ThemeContext, NotificationContext
-├── hooks/                    # useDebounce, usePagination, use-mobile, use-toast
-└── lib/                      # firebase.ts, firebase-admin.ts, firestore.ts, auth.ts, config.ts, utils.ts, jikan.ts
+├── app/
+│   ├── page.tsx                      # Home (Server Component + ISR)
+│   ├── read/[slug]/[chapter]/        # Internal vertical-scroll manga reader
+│   ├── manga/[slug]/                 # Manga detail & chapter list
+│   ├── browse/                       # Filterable catalog
+│   ├── search/                       # Search page
+│   ├── genre/[slug]/                 # Genre filter page
+│   ├── bookmarks/                    # User bookmarks
+│   ├── requests/                     # Community manga requests
+│   ├── blog/                         # Journal & announcements
+│   ├── admin/                        # Editorial admin console (manga, chapters, telegram, genres, etc.)
+│   └── api/                          # Server routes (admin/session, image/[fileId], manga/*, telegram/*)
+├── components/                       # UI, layout, manga, home, and admin components
+├── context/                          # Auth, Bookmark, ContentMode, Notification, Theme providers
+├── hooks/                            # useDebounce, usePagination, use-mobile, use-toast
+└── lib/                              # firebase, firebase-admin, firestore, auth, server-auth, telegram, jikan, config
 ```
 
 ---
 
-## 🔧 Adult / Family Mode — How it Works
+## 🗄️ Firestore Rules & Indexes
 
-| State | What happens |
-|-------|--------------|
-| **Default (new visitor)** | Family Mode — 18+ manga hidden everywhere |
-| **User clicks Adult Mode** | Age verification modal opens |
-| **User confirms 18+** | `isAgeVerified=true` saved to localStorage + cookie, mode switches to Adult |
-| **Adult Mode on** | All manga visible, 18+ badge shown on adult cards/details |
-| **User toggles back to Family** | Adult manga immediately hidden |
-
-Server-side: Home page checks the `iskultrip-content-mode` + `iskultrip-age-verified` cookies. If both are set to adult/true, adult content is included in SSR. Otherwise, only family-safe manga are server-rendered (good for SEO + safe defaults).
-
-To mark a manga as adult: open Admin → Manga → Add/Edit → check "Adult Content (18+)".
-
----
-
-## 🗄️ Firestore Indexes
-
-Composite indexes are required for proper query performance. They are defined in `firestore.indexes.json` — deploy with:
+Rules and composite indexes are defined in `firestore.rules` and `firestore.indexes.json` and deployed via Firebase CLI:
 
 ```bash
-firebase deploy --only firestore:indexes
+firebase deploy --only firestore:rules,firestore:indexes
 ```
-
-The code automatically falls back to client-side filtering if indexes aren't deployed yet, but you'll see warnings in the logs.
 
 ---
 
-## 📜 License
+## 📜 License & DMCA
 
-This project is for educational/community use. Manga content belongs to respective copyright holders. DMCA takedown requests are honored via the `/dmca` page.
+This project is for community manga indexing and reading. Copyrighted content belongs to respective rights holders; DMCA takedown requests are handled via `/dmca`.
 
 ---
 
 ## 👨‍💻 Author
 
-**MD MEHADI HASAN** — ISKULTRIP SCANS
+**MD MEHADI HASAN** — MangaBD

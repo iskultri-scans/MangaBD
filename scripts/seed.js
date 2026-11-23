@@ -1,5 +1,5 @@
 /**
- * ISKULTRIP SCANS — Demo Data Seeder
+ * MangaBD — Demo Data Seeder
  *
  * This script populates your Firestore with sample manga, genres, and chapters
  * so you can preview the website immediately.

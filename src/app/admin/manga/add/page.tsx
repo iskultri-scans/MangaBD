@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Send } from 'lucide-react';
 import { AdminHeader } from '@/components/admin/AdminHeader';
 import { MangaForm } from '@/components/admin/MangaForm';
@@ -12,8 +12,11 @@ import { getFirebaseAuth } from '@/lib/firebase';
 import { SITE_CONFIG } from '@/lib/config';
 import { Timestamp } from 'firebase/firestore';
 
-export default function AddMangaPage() {
+function AddMangaContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialQueryTitle = searchParams.get('q')?.trim() || '';
+
   const { showToast } = useToast();
   const { user, isAdmin } = useAuth();
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -162,11 +165,28 @@ export default function AddMangaPage() {
       </div>
 
       <MangaForm
+        key={initialQueryTitle || 'new-manga'}
+        initialTitle={initialQueryTitle}
         onSubmit={handleSubmit}
         genres={genres.map((g) => ({ name: g.name, slug: g.slug }))}
         loading={loading}
         submitLabel="Add Manga"
       />
     </div>
+  );
+}
+
+export default function AddMangaPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4">
+          <div className="skeleton h-8 w-48 rounded-lg" />
+          <div className="skeleton h-32 rounded-xl max-w-2xl" />
+        </div>
+      }
+    >
+      <AddMangaContent />
+    </Suspense>
   );
 }

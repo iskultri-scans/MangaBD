@@ -150,6 +150,76 @@ export function formatTelegramHtml(payload: TelegramBroadcastPayload): string {
   return parts.join('\n');
 }
 
+const TELEGRAM_API_TIMEOUT_MS = 10_000;
+const TELEGRAM_UPLOAD_TIMEOUT_MS = 30_000;
+const TELEGRAM_STREAM_TIMEOUT_MS = 15_000;
+const MAX_RETRY_AFTER_MS = 8_000;
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(res: Response, retryAfterSec?: number): number | null {
+  if (res.status !== 429 && retryAfterSec === undefined) return null;
+  const headerVal = res.headers.get('retry-after');
+  const parsedSec =
+    typeof retryAfterSec === 'number' && Number.isFinite(retryAfterSec)
+      ? retryAfterSec
+      : headerVal
+        ? Number(headerVal)
+        : 1;
+  if (!Number.isFinite(parsedSec) || parsedSec <= 0) return 1000;
+  const delayMs = parsedSec * 1000 + 150;
+  return delayMs <= MAX_RETRY_AFTER_MS ? delayMs : null;
+}
+
+interface TelegramJsonPayload {
+  ok: boolean;
+  error_code?: number;
+  description?: string;
+  parameters?: { retry_after?: number };
+  result?: unknown;
+}
+
+async function fetchTelegramJsonWithRetry<T extends TelegramJsonPayload>(
+  url: string,
+  createInit: () => RequestInit,
+  timeoutMs = TELEGRAM_API_TIMEOUT_MS,
+  maxAttempts = 2
+): Promise<{ res: Response; data: T | null }> {
+  let lastRes: Response | null = null;
+  let lastData: T | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(url, {
+      ...createInit(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    let data: T | null = null;
+    try {
+      data = (await res.json()) as T;
+    } catch {
+      data = null;
+    }
+
+    lastRes = res;
+    lastData = data;
+
+    const isRateLimited = res.status === 429 || data?.error_code === 429;
+    if (isRateLimited && attempt < maxAttempts - 1) {
+      const retryMs = getRetryDelayMs(res, data?.parameters?.retry_after);
+      if (retryMs !== null) {
+        await sleep(retryMs);
+        continue;
+      }
+    }
+
+    return { res, data };
+  }
+
+  return { res: lastRes as Response, data: lastData };
+}
+
 // ─── Messaging & Broadcasting ────────────────────────────────────────────────
 
 export async function sendTelegramMessageToChat(
@@ -178,35 +248,36 @@ export async function sendTelegramMessageToChat(
 
   if (isPublicHttpsUrl(payload.coverImage) && html.length <= 1024) {
     try {
-      const photoRes = await fetch(`${baseUrl}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          photo: payload.coverImage,
-          caption: html,
-          parse_mode: 'HTML',
-          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      const { res: photoRes, data: photoData } = await fetchTelegramJsonWithRetry<
+        TelegramJsonPayload & { result?: { message_id?: number } }
+      >(
+        `${baseUrl}/sendPhoto`,
+        () => ({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: payload.coverImage,
+            caption: html,
+            parse_mode: 'HTML',
+            ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+          }),
         }),
-      });
-      const photoData = (await photoRes.json()) as {
-        ok: boolean;
-        error_code?: number;
-        result?: { message_id?: number };
-        description?: string;
-      };
-      if (photoRes.ok && photoData.ok) {
+        TELEGRAM_API_TIMEOUT_MS
+      );
+
+      if (photoRes.ok && photoData?.ok) {
         return {
           ok: true,
           method: 'sendPhoto',
           messageId: photoData.result?.message_id,
         };
       }
-      if (photoRes.status === 403 || photoData.error_code === 403) {
+      if (photoRes.status === 403 || photoData?.error_code === 403) {
         return {
           ok: false,
           blocked: true,
-          error: photoData.description || 'User blocked the bot',
+          error: photoData?.description || 'User blocked the bot',
         };
       }
     } catch (err) {
@@ -215,29 +286,29 @@ export async function sendTelegramMessageToChat(
   }
 
   try {
-    const msgRes = await fetch(`${baseUrl}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: html.slice(0, 4096),
-        parse_mode: 'HTML',
-        disable_web_page_preview: false,
-        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    const { res: msgRes, data: msgData } = await fetchTelegramJsonWithRetry<
+      TelegramJsonPayload & { result?: { message_id?: number } }
+    >(
+      `${baseUrl}/sendMessage`,
+      () => ({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: html.slice(0, 4096),
+          parse_mode: 'HTML',
+          disable_web_page_preview: false,
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        }),
       }),
-    });
-    const msgData = (await msgRes.json()) as {
-      ok: boolean;
-      error_code?: number;
-      result?: { message_id?: number };
-      description?: string;
-    };
+      TELEGRAM_API_TIMEOUT_MS
+    );
 
-    if (!msgRes.ok || !msgData.ok) {
+    if (!msgRes.ok || !msgData?.ok) {
       return {
         ok: false,
-        blocked: msgRes.status === 403 || msgData.error_code === 403,
-        error: msgData.description || `Telegram API error (${msgRes.status})`,
+        blocked: msgRes.status === 403 || msgData?.error_code === 403,
+        error: msgData?.description || `Telegram API error (${msgRes.status})`,
       };
     }
 
@@ -274,17 +345,21 @@ export async function sendTelegramTextReply(
   const token = getTelegramBotToken();
   if (!token) return false;
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
+    const { res, data } = await fetchTelegramJsonWithRetry(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      () => ({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
       }),
-    });
-    return res.ok;
+      TELEGRAM_API_TIMEOUT_MS
+    );
+    return Boolean(res.ok && data?.ok);
   } catch {
     return false;
   }
@@ -312,37 +387,42 @@ export async function uploadImageToTelegram(
   }
 
   try {
-    const formData = new FormData();
-    formData.append('chat_id', storageChannelId);
-    formData.append('document', file, filename);
-    formData.append('disable_notification', 'true');
-    if (caption?.trim()) {
-      formData.append('caption', caption.trim().slice(0, 1024));
-    }
-
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = (await res.json()) as {
-      ok: boolean;
-      description?: string;
-      result?: {
-        message_id?: number;
-        document?: {
-          file_id: string;
-          file_unique_id: string;
-          file_size?: number;
-          mime_type?: string;
-        };
-      };
+    const buildFormData = () => {
+      const formData = new FormData();
+      formData.append('chat_id', storageChannelId);
+      formData.append('document', file, filename);
+      formData.append('disable_notification', 'true');
+      if (caption?.trim()) {
+        formData.append('caption', caption.trim().slice(0, 1024));
+      }
+      return formData;
     };
 
-    if (!res.ok || !data.ok || !data.result?.document?.file_id) {
+    const { res, data } = await fetchTelegramJsonWithRetry<
+      TelegramJsonPayload & {
+        result?: {
+          message_id?: number;
+          document?: {
+            file_id: string;
+            file_unique_id: string;
+            file_size?: number;
+            mime_type?: string;
+          };
+        };
+      }
+    >(
+      `https://api.telegram.org/bot${token}/sendDocument`,
+      () => ({
+        method: 'POST',
+        body: buildFormData(),
+      }),
+      TELEGRAM_UPLOAD_TIMEOUT_MS
+    );
+
+    if (!res.ok || !data?.ok || !data.result?.document?.file_id) {
       return {
         ok: false,
-        error: data.description || `Telegram upload failed (${res.status})`,
+        error: data?.description || `Telegram upload failed (${res.status})`,
       };
     }
 
@@ -372,19 +452,18 @@ async function resolveTelegramFilePath(fileId: string, bypassCache = false): Pro
   const token = getTelegramBotToken();
   if (!token) return null;
 
-  const res = await fetch(
+  const { res, data } = await fetchTelegramJsonWithRetry<
+    TelegramJsonPayload & { result?: { file_path?: string } }
+  >(
     `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
-    { cache: 'no-store' }
+    () => ({ cache: 'no-store' }),
+    TELEGRAM_API_TIMEOUT_MS
   );
+
   if (!res.ok) return null;
 
-  const data = (await res.json()) as {
-    ok: boolean;
-    result?: { file_path?: string };
-  };
-
-  const filePath = data.result?.file_path;
-  if (!data.ok || !filePath) return null;
+  const filePath = data?.result?.file_path;
+  if (!data?.ok || !filePath) return null;
 
   setCachedFilePath(fileId, filePath);
   return filePath;
@@ -412,32 +491,48 @@ export async function fetchTelegramFileStream(fileId: string): Promise<TelegramF
     return { ok: false, status: 503, error: 'Telegram Bot Token is not configured.' };
   }
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const filePath = await resolveTelegramFilePath(fileId, attempt === 1);
-    if (!filePath) {
-      return { ok: false, status: 404, error: 'Image not found on Telegram.' };
-    }
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const filePath = await resolveTelegramFilePath(fileId, attempt === 1);
+      if (!filePath) {
+        return { ok: false, status: 404, error: 'Image not found on Telegram.' };
+      }
 
-    const fileRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
-    if (fileRes.ok && fileRes.body) {
+      const fileRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`, {
+        signal: AbortSignal.timeout(TELEGRAM_STREAM_TIMEOUT_MS),
+      });
+      if (fileRes.ok && fileRes.body) {
+        return {
+          ok: true,
+          stream: fileRes.body,
+          contentType: inferImageContentType(filePath, fileRes.headers.get('content-type')),
+          contentLength: fileRes.headers.get('content-length'),
+        };
+      }
+
+      // If Telegram returned 404 on cached path, invalidate cache and retry once
+      if (fileRes.status === 404 && attempt === 0) {
+        filePathCache.delete(fileId);
+        continue;
+      }
+
       return {
-        ok: true,
-        stream: fileRes.body,
-        contentType: inferImageContentType(filePath, fileRes.headers.get('content-type')),
-        contentLength: fileRes.headers.get('content-length'),
+        ok: false,
+        status: fileRes.status === 404 ? 404 : 502,
+        error: `Failed to stream image from Telegram (${fileRes.status})`,
       };
     }
-
-    // If Telegram returned 404 on cached path, invalidate cache and retry once
-    if (fileRes.status === 404 && attempt === 0) {
-      filePathCache.delete(fileId);
-      continue;
-    }
-
+  } catch (error) {
+    const isTimeout =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
     return {
       ok: false,
-      status: fileRes.status === 404 ? 404 : 502,
-      error: `Failed to stream image from Telegram (${fileRes.status})`,
+      status: isTimeout ? 504 : 502,
+      error: isTimeout
+        ? 'Telegram image upstream timed out.'
+        : error instanceof Error
+          ? error.message
+          : 'Failed to reach Telegram image upstream.',
     };
   }
 

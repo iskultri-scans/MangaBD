@@ -1,5 +1,5 @@
 /**
- * ISKULTRIP SCANS - Firebase Setup Verification Script
+ * MangaBD - Firebase Setup Verification Script
  *
  * Run this script to verify that Firebase is properly configured.
  * Usage: node scripts/verify-firebase.js
@@ -44,7 +44,7 @@ function loadEnvFile() {
 loadEnvFile();
 
 async function verify() {
-  console.log('🔍 ISKULTRIP SCANS — Firebase Setup Verification\n');
+  console.log('🔍 MangaBD — Firebase Setup Verification\n');
   console.log('━'.repeat(50));
 
   // ─── Check Environment Variables ─────────────────
@@ -60,7 +60,6 @@ async function verify() {
     { key: 'FIREBASE_ADMIN_PROJECT_ID', label: 'Admin Project ID' },
     { key: 'FIREBASE_ADMIN_CLIENT_EMAIL', label: 'Admin Client Email' },
     { key: 'FIREBASE_ADMIN_PRIVATE_KEY', label: 'Admin Private Key' },
-    { key: 'NEXT_PUBLIC_ADMIN_EMAIL', label: 'Admin Email' },
     { key: 'NEXT_PUBLIC_SITE_URL', label: 'Site URL' },
     { key: 'NEXT_PUBLIC_FACEBOOK_URL', label: 'Facebook URL' },
     { key: 'NEXT_PUBLIC_TELEGRAM_URL', label: 'Telegram URL' },
@@ -128,7 +127,7 @@ async function verify() {
         console.log(`   ✅ Firebase Auth accessible (${userList.users.length} users found)`);
       } catch (authErr) {
         console.log('   ⚠️  Firebase Auth: ' + authErr.message);
-        console.log('      Make sure Email/Password and Google sign-in are enabled in Firebase Console');
+        console.log('      Make sure Google sign-in is enabled in Firebase Console');
       }
     }
   } catch (error) {
@@ -140,14 +139,13 @@ async function verify() {
   console.log('\n📊 Summary:\n');
 
   console.log('   🌐 Site URL: ' + (process.env.NEXT_PUBLIC_SITE_URL || 'NOT SET'));
-  console.log('   📧 Admin Email: ' + (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'NOT SET'));
   console.log('   📘 Facebook: ' + (process.env.NEXT_PUBLIC_FACEBOOK_URL || 'NOT SET'));
   console.log('   ✈️  Telegram: ' + (process.env.NEXT_PUBLIC_TELEGRAM_URL || 'NOT SET'));
   console.log('   🔥 Project: ' + (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'NOT SET'));
 
   console.log('\n💡 Next Steps:');
-  console.log('   1. Enable Email/Password & Google Auth in Firebase Console');
-  console.log('   2. Create admin user: ' + (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'bongmanga.official@gmail.com'));
+  console.log('   1. Enable Google Auth in Firebase Console');
+  console.log('   2. Add admin UID document at admins/{uid} in Firestore');
   console.log('   3. Run seed script: node scripts/seed-manga.js');
   console.log('   4. Deploy to Vercel: vercel --prod\n');
 

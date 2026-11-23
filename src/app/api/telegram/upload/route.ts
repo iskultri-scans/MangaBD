@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       }
       if (file.size === 0 || file.size > MAX_FILE_SIZE_BYTES) {
         return NextResponse.json(
-          { ok: false, error: `File "${file.name}" exceeds the 20MB Telegram CDN limit.` },
+          { ok: false, error: `File "${file.name}" is empty or exceeds the 4MB upload limit.` },
           { status: 400 }
         );
       }

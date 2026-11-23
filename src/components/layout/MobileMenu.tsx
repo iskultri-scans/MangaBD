@@ -195,7 +195,7 @@ export function MobileMenu({ isOpen, onClose, genres }: MobileMenuProps) {
             <span className="block px-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
               Preferences
             </span>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid gap-2 ${SITE_CONFIG.features.adultModeEnabled ? 'grid-cols-2' : 'grid-cols-1'}`}>
               <button
                 type="button"
                 onClick={toggleTheme}
@@ -209,19 +209,21 @@ export function MobileMenu({ isOpen, onClose, genres }: MobileMenuProps) {
                 <span>{theme === 'dark' ? 'Dark Ink' : 'Light Paper'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={toggleMode}
-                className="flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                style={{
-                  background: isFamily ? 'var(--bg-primary)' : 'var(--accent-glow)',
-                  border: `1px solid ${isFamily ? 'var(--border-color)' : 'var(--accent)'}`,
-                  color: isFamily ? 'var(--text-primary)' : 'var(--accent)',
-                }}
-              >
-                {isFamily ? <EyeOff size={14} /> : <Eye size={14} />}
-                <span>{isFamily ? 'Family Safe' : '18+ Mode'}</span>
-              </button>
+              {SITE_CONFIG.features.adultModeEnabled && (
+                <button
+                  type="button"
+                  onClick={toggleMode}
+                  className="flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  style={{
+                    background: isFamily ? 'var(--bg-primary)' : 'var(--accent-glow)',
+                    border: `1px solid ${isFamily ? 'var(--border-color)' : 'var(--accent)'}`,
+                    color: isFamily ? 'var(--text-primary)' : 'var(--accent)',
+                  }}
+                >
+                  {isFamily ? <EyeOff size={14} /> : <Eye size={14} />}
+                  <span>{isFamily ? 'Family Safe' : '18+ Mode'}</span>
+                </button>
+              )}
             </div>
           </div>
 

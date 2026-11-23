@@ -9,6 +9,7 @@
 import { cookies } from 'next/headers';
 import { PublicLayout } from '@/components/layout/PublicLayout';
 import { HomeContent } from '@/components/home/HomeContent';
+import { SITE_CONFIG } from '@/lib/config';
 import {
   getAllGenres,
   getFeaturedManga,
@@ -56,11 +57,12 @@ async function loadData() {
 export default async function HomePage() {
   const data = await loadData();
 
-  // 🔒 Server-side adult filtering based on cookie (Family Mode default for SEO)
+  // 🔒 Server-side adult filtering based on feature flag + cookie (Family Mode default for SEO)
   const cookieStore = await cookies();
-  const contentMode = cookieStore.get('iskultrip-content-mode')?.value || 'family';
-  const isAgeVerified = cookieStore.get('iskultrip-age-verified')?.value === 'true';
-  const includeAdult = contentMode === 'adult' && isAgeVerified;
+  const contentMode = cookieStore.get('mangabd-content-mode')?.value || 'family';
+  const isAgeVerified = cookieStore.get('mangabd-age-verified')?.value === 'true';
+  const includeAdult =
+    SITE_CONFIG.features.adultModeEnabled && contentMode === 'adult' && isAgeVerified;
 
   // Filter adult content unless user has explicit verified adult preference
   const filterAdult = <T extends { isAdult?: boolean }>(list: T[]): T[] =>

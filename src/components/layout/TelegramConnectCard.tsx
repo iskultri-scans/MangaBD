@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { Send, CheckCircle2, Bell, BellOff, Unlink, RefreshCw, ExternalLink, Loader2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -13,6 +13,9 @@ interface TelegramStatus {
   notificationsEnabled: boolean;
 }
 
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLL_DURATION_MS = 3 * 60 * 1000; // stop silent polling after 3 minutes
+
 export function TelegramConnectCard() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -22,34 +25,80 @@ export function TelegramConnectCard() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [togglingNotif, setTogglingNotif] = useState(false);
   const [pendingDeepLink, setPendingDeepLink] = useState<string | null>(null);
-
-  const fetchStatus = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch('/api/telegram/link-token', {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStatus({
-          linked: Boolean(data.linked),
-          telegramUsername: data.telegramUsername || null,
-          notificationsEnabled: data.notificationsEnabled ?? true,
-        });
-        if (data.linked) setPendingDeepLink(null);
-      }
-    } catch (error) {
-      console.error('Failed to load Telegram link status:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+  const pendingRef = useRef<boolean>(false);
 
   useEffect(() => {
-    fetchStatus();
+    pendingRef.current = Boolean(pendingDeepLink);
+  }, [pendingDeepLink]);
+
+  const fetchStatus = useCallback(
+    async (silent = false) => {
+      if (!user) return;
+      if (!silent) setLoading(true);
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch('/api/telegram/link-token', {
+          headers: { Authorization: `Bearer ${idToken}` },
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const isLinked = Boolean(data.linked);
+          setStatus({
+            linked: isLinked,
+            telegramUsername: data.telegramUsername || null,
+            notificationsEnabled: data.notificationsEnabled ?? true,
+          });
+          if (isLinked) {
+            if (pendingRef.current) {
+              showToast('Telegram account connected!', 'success');
+            }
+            setPendingDeepLink(null);
+          }
+        }
+      } catch (error) {
+        if (!silent) {
+          console.error('Failed to load Telegram link status:', error);
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [user, showToast]
+  );
+
+  useEffect(() => {
+    fetchStatus(false);
   }, [fetchStatus]);
+
+  // Auto-poll & refresh on focus/visibility while user is completing /start in Telegram
+  useEffect(() => {
+    if (!pendingDeepLink || status?.linked) return;
+
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      if (Date.now() - startedAt > MAX_POLL_DURATION_MS) {
+        clearInterval(interval);
+        return;
+      }
+      fetchStatus(true);
+    }, POLL_INTERVAL_MS);
+
+    const handleReturn = () => {
+      if (document.visibilityState === 'visible') {
+        fetchStatus(true);
+      }
+    };
+
+    window.addEventListener('focus', handleReturn);
+    document.addEventListener('visibilitychange', handleReturn);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleReturn);
+      document.removeEventListener('visibilitychange', handleReturn);
+    };
+  }, [pendingDeepLink, status?.linked, fetchStatus]);
 
   const handleConnect = async () => {
     if (!user) return;
@@ -67,7 +116,7 @@ export function TelegramConnectCard() {
       }
       setPendingDeepLink(data.deepLink);
       window.open(data.deepLink, '_blank', 'noopener,noreferrer');
-      showToast('Opened Telegram! Tap "Start" in the bot, then refresh status.', 'info');
+      showToast('Opened Telegram! Tap "Start" in the bot — status will auto-update.', 'info');
     } catch {
       showToast('Failed to start Telegram connection', 'error');
     } finally {
@@ -141,7 +190,7 @@ export function TelegramConnectCard() {
         </span>
         <button
           type="button"
-          onClick={fetchStatus}
+          onClick={() => fetchStatus(false)}
           disabled={loading}
           className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
           aria-label="Refresh Telegram status"
@@ -215,15 +264,20 @@ export function TelegramConnectCard() {
           </button>
 
           {pendingDeepLink && (
-            <a
-              href={pendingDeepLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1 text-[11px] font-medium text-[var(--accent)] hover:underline"
-            >
-              <ExternalLink size={11} />
-              Open Telegram Bot Link
-            </a>
+            <div className="space-y-1 pt-0.5">
+              <a
+                href={pendingDeepLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1 text-[11px] font-medium text-[var(--accent)] hover:underline"
+              >
+                <ExternalLink size={11} />
+                Open Telegram Bot Link
+              </a>
+              <p className="text-[10px] text-center text-[var(--text-muted)]">
+                Auto-checking connection...
+              </p>
+            </div>
           )}
         </div>
       )}

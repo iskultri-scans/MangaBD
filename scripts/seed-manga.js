@@ -1,5 +1,5 @@
 /**
- * ISKULTRIP SCANS - Demo Data Seed Script
+ * MangaBD - Demo Data Seed Script
  *
  * Run this script to populate Firestore with sample manga data.
  * Usage: node scripts/seed-manga.js
@@ -239,13 +239,13 @@ const demoManga = [
     coverImage: 'https://cdn.myanimelist.net/images/manga/1/245777l.jpg',
     bannerImage: 'https://cdn.myanimelist.net/images/manga/1/245777l.jpg',
     genres: ['Fantasy', 'Adventure', 'Drama', 'Supernatural'],
-    author: 'ISKULTRIP Team',
-    artist: 'ISKULTRIP Team',
+    author: 'MangaBD Team',
+    artist: 'MangaBD Team',
     status: 'ongoing',
     rating: 7.8,
     totalChapters: 0,
     language: 'bn',
-    readLink: 'https://t.me/ISKULTRIP_SCANS',
+    readLink: 'https://t.me/mangabd_official',
     featured: true,
     trending: false,
   },
@@ -291,14 +291,14 @@ const demoChapters = {
     { title: 'Chapter 3 — Don\'t Cry', chapterNumber: 3, readLink: 'https://mangadex.org/chapter/503' },
   ],
   'bengali-folk-tales': [
-    { title: 'পর্ব ১ — লালকামিনী', chapterNumber: 1, readLink: 'https://t.me/ISKULTRIP_SCANS/1' },
-    { title: 'পর্ব ২ — বুড়ো বাঘ', chapterNumber: 2, readLink: 'https://t.me/ISKULTRIP_SCANS/2' },
-    { title: 'পর্ব ৩ — জাদুকরের ছাতা', chapterNumber: 3, readLink: 'https://t.me/ISKULTRIP_SCANS/3' },
+    { title: 'পর্ব ১ — লালকামিনী', chapterNumber: 1, readLink: 'https://t.me/mangabd_official/1' },
+    { title: 'পর্ব ২ — বুড়ো বাঘ', chapterNumber: 2, readLink: 'https://t.me/mangabd_official/2' },
+    { title: 'পর্ব ৩ — জাদুকরের ছাতা', chapterNumber: 3, readLink: 'https://t.me/mangabd_official/3' },
   ],
 };
 
 async function seed() {
-  console.log('🌱 Seeding ISKULTRIP SCANS demo data...\n');
+  console.log('🌱 Seeding MangaBD demo data...\n');
 
   // ─── Seed Genres ───────────────────────────────────
   console.log('📝 Adding genres...');
@@ -368,7 +368,7 @@ async function seed() {
     console.log(`   ✅ ${name}: ${count} manga`);
   }
 
-  console.log('\n🎉 Seed complete! Your ISKULTRIP SCANS site now has demo data.');
+  console.log('\n🎉 Seed complete! Your MangaBD site now has demo data.');
   console.log('   Visit your site to see the manga listings.\n');
   process.exit(0);
 }

@@ -2,8 +2,6 @@
 
 import React, { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { signOut } from 'firebase/auth';
-import { getFirebaseAuth } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
@@ -13,7 +11,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const isLoginPage = pathname === '/admin/login';
-  const { user, isAdmin, loading: authLoading } = useAuth();
+  const { user, isAdmin, loading: authLoading, signOut } = useAuth();
 
   const isAuthorized = !authLoading && user && isAdmin;
   const shouldRedirect = !authLoading && !isLoginPage && (!user || !isAdmin);
@@ -46,8 +44,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const handleSignOut = async () => {
     try {
-      await signOut(getFirebaseAuth());
-      document.cookie = 'iskultrip-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      await signOut();
       router.push('/admin/login');
     } catch (error) {
       console.error('Sign out error:', error);

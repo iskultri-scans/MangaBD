@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT.md — MangaBD
 
-> **Status:** Baseline Audit Complete (Round 1.5)  
-> **Last Updated:** 2026-11-19  
+> **Status:** Round 5 Complete (Gap Audit, Restore & Polish)  
+> **Last Updated:** 2026-11-23  
 > **Owner:** Mehedi  
 > **Role Structure:** PM (external AI) → Lead Engineer (codebase agent)
 
@@ -163,7 +163,7 @@
 
 | Route | Method | Auth | Request | Response |
 | :--- | :--- | :--- | :--- | :--- |
-| `/api/telegram/upload` | `GET` | Public | None | `{ configured, maxFileSizeMB: 20, maxFilesPerRequest: 50 }` |
+| `/api/telegram/upload` | `GET` | Public | None | `{ configured, maxFileSizeMB: 4, maxFilesPerRequest: 1 }` |
 | `/api/telegram/upload` | `POST` | Admin (`Bearer` or session cookie) | `multipart/form-data` (`files`/`file`, `startPage?`, `caption?`) | `{ ok, count, pages: [{ pageNumber, filename, fileId, fileUniqueId, fileSize, mimeType, proxyUrl }] }` |
 | `/api/image/[fileId]` | `GET` | Public | Path param `fileId` (`^[A-Za-z0-9_-]{10,200}$`) | Binary image stream + `Cache-Control: public, max-age=31536000, immutable` |
 | `/api/telegram/link-token` | `GET` | Authenticated User (`Bearer`) | None | `{ ok, linked, telegramUsername, notificationsEnabled, botUsername, adminConfigured }` |
@@ -171,7 +171,7 @@
 | `/api/telegram/link-token` | `DELETE` | Authenticated User (`Bearer`) | None | `{ ok, linked: false }` |
 | `/api/telegram/webhook` | `POST` | Header `X-Telegram-Bot-Api-Secret-Token` | Telegram `Update` JSON | `{ ok: true }` (always 200 on handled updates to prevent Telegram retry loops) |
 | `/api/telegram/broadcast` | `POST` | Admin (`Bearer` or session cookie) | JSON `{ type, mangaId?, title, message, url?, coverImage?, tag?, buttonLabel?, sendToChannel?, sendDMs? }` | `{ ok, channelSent, channelError?, dmTargeted, dmSent, dmFailed }` |
-| `/api/admin/session` | `POST`/`DELETE` | Admin | Session token / logout | Sets or clears `iskultrip-session` HTTP-only cookie |
+| `/api/admin/session` | `POST`/`DELETE` | Admin | Session token / logout | Sets or clears `mangabd-session` HTTP-only cookie |
 
 ---
 
@@ -218,6 +218,7 @@
 - **2026-11-19 (Vote Cap Note):** `requests` collection-এ `upvotedBy.size() <= 500` ক্যাপ আছে (৫০০ ভোটের পর upvote বন্ধ — গ্রহণযোগ্য)।
 - **2026-11-22 (Mirror Auto-Deploy):** Decided to keep `mangabd/mangabd` (`origin`) as business source of truth and `iskultri-scans/mangabd` (`mirror`) as deploy-only private mirror for Vercel auto-deploy; all commits must be dual-pushed to `origin` and `mirror`.
 - **2026-11-23 (Round 4 — Internal Reader):** Added dedicated public reader route `/read/[slug]/[chapter]` rendering Telegram CDN pages via `/api/image/[fileId]` with next-2-page preloading and retry, while preserving external `readLink` fallback for legacy/external chapters.
+- **2026-11-23 (Round 5 — Audit, Restore & Polish):** Unified `/admin/chapters` by reusing `<ChapterManager />`, upgraded metadata auto-fill to public multi-source cascade (`Jikan/MAL → AniList → MangaDex`) with inline title lookup, cleaned up leftover `ISKULTRIP` branding/cookies, and added client JPEG compression fallback, Telegram `429` retry + `AbortSignal.timeout`, atomic `runTransaction` request upvotes, and auto-polling in `TelegramConnectCard`.
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
@@ -229,3 +230,8 @@
 - **2026-11-20:** Updated `firebase-applet-config.json` for `mangabd-prod` (`(default)` DB), added `firebase.json`, and deployed `firestore.rules` + `firestore.indexes.json` to `mangabd-prod`.
 - **2026-11-22:** Configured `mirror` remote (`iskultri-scans/mangabd`) and documented the dual-push auto-deploy workflow in `PROJECT_CONTEXT.md`.
 - **2026-11-23 (Round 4):** Added `/read/[slug]/[chapter]` vertical-scroll reader (sticky chapter nav, lazy-load + next-2-page preload, page numbers, retry on error, external fallback), updated `ChapterList` + `MangaDetail` Read buttons to route hosted chapters to `/read/{slug}/{chapter}`, and updated `ChapterManager` `effectiveReadLink` fallback to `/read/{slug}/{chapter}`.
+- **2026-11-23 (Round 5):**
+  - `B1`: Refactored `/admin/chapters` to reuse `<ChapterManager />` (Telegram CDN multi-page upload, compression, retry, resume, `/api/telegram/broadcast`, optional external link, quick series picks + `?q=` redirect to Add Manga) and fixed `4MB` error message in `/api/telegram/upload`.
+  - `B2`: Upgraded `/api/manga/search`, `/api/manga/detail`, `src/lib/jikan.ts`, `MangaForm.tsx`, and `/admin/manga/add` with `Jikan (MAL) → AniList → MangaDex` cascade, open-by-default search on Add Manga, debounced title auto-fill, and manual fallback.
+  - `B3`: Rewrote `README.md` for MangaBD (Adult Mode OFF, Google-only, Telegram CDN, internal reader), cleaned `scripts/*.js` branding, fixed `admin/layout.tsx` signOut to clear `mangabd-session`, aligned `src/app/page.tsx` cookies (`mangabd-*` + `adultModeEnabled`), and hid disabled adult toggle in `MobileMenu.tsx`.
+  - `B4`: Added WebP→JPEG(+scale) fallback in `ChapterManager`, `429` `retry_after` + `AbortSignal.timeout` in `src/lib/telegram.ts`, atomic `runTransaction` in `upvoteRequest` (`src/lib/firestore.ts`), and background auto-poll + focus/visibility refresh in `TelegramConnectCard.tsx`.
