@@ -32,6 +32,8 @@ export interface TelegramFileStreamResult {
   stream?: ReadableStream<Uint8Array>;
   contentType?: string;
   contentLength?: string | null;
+  etag?: string | null;
+  lastModified?: string | null;
   status?: number;
   error?: string;
 }
@@ -507,6 +509,8 @@ export async function fetchTelegramFileStream(fileId: string): Promise<TelegramF
           stream: fileRes.body,
           contentType: inferImageContentType(filePath, fileRes.headers.get('content-type')),
           contentLength: fileRes.headers.get('content-length'),
+          etag: fileRes.headers.get('etag'),
+          lastModified: fileRes.headers.get('last-modified'),
         };
       }
 

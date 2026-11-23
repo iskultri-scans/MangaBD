@@ -36,6 +36,7 @@ function ReaderPageImage({
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [retryCount, setRetryCount] = useState(0);
   const figureRef = useRef<HTMLElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     const el = figureRef.current;
@@ -59,6 +60,13 @@ function ReaderPageImage({
   const baseSrc = `/api/image/${encodeURIComponent(page.fileId)}`;
   const src = retryCount > 0 ? `${baseSrc}?retry=${retryCount}` : baseSrc;
 
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setStatus('loaded');
+    }
+  }, [src]);
+
   const handleRetry = () => {
     setStatus('loading');
     setRetryCount((prev) => prev + 1);
@@ -68,10 +76,10 @@ function ReaderPageImage({
     <figure
       ref={figureRef}
       data-page-index={index}
-      className="relative w-full bg-[#131317] border-b border-white/5 last:border-b-0"
+      className="relative w-full m-0 p-0 border-0 rounded-none leading-[0] bg-[#0B0B0E]"
     >
       {status === 'loading' && (
-        <div className="w-full min-h-[280px] sm:min-h-[420px] flex flex-col items-center justify-center gap-2 text-zinc-400">
+        <div className="w-full min-h-[280px] sm:min-h-[420px] flex flex-col items-center justify-center gap-2 text-zinc-400 leading-normal bg-[#131317]">
           <Loader2 size={22} className="animate-spin text-[var(--accent)]" />
           <span className="font-mono-num text-xs">
             Loading page {page.pageNumber} / {totalPages}
@@ -80,7 +88,7 @@ function ReaderPageImage({
       )}
 
       {status === 'error' ? (
-        <div className="w-full min-h-[260px] flex flex-col items-center justify-center gap-3 px-4 py-12 text-center bg-[#141419]">
+        <div className="w-full min-h-[260px] flex flex-col items-center justify-center gap-3 px-4 py-12 text-center leading-normal bg-[#141419]">
           <p className="text-sm font-medium text-zinc-200">
             Page {page.pageNumber} failed to load
           </p>
@@ -98,22 +106,20 @@ function ReaderPageImage({
         </div>
       ) : (
         <img
+          ref={imgRef}
           key={`${page.fileId}-${retryCount}`}
           src={src}
           alt={`${mangaTitle} Chapter ${chapterNumber} — Page ${page.pageNumber}`}
-          loading="lazy"
+          loading={index < 2 ? 'eager' : 'lazy'}
           decoding="async"
+          fetchPriority={index === 0 ? 'high' : 'auto'}
           onLoad={() => setStatus('loaded')}
           onError={() => setStatus('error')}
-          className={`w-full h-auto block mx-auto ${
-            status === 'loading' ? 'h-0 opacity-0' : 'opacity-100 transition-opacity duration-200'
+          className={`block w-full m-0 p-0 border-0 rounded-none select-none ${
+            status === 'loading' ? 'h-0 overflow-hidden opacity-0' : 'h-auto opacity-100'
           }`}
         />
       )}
-
-      <figcaption className="py-1.5 px-3 text-center font-mono-num text-[11px] text-zinc-500 bg-[#0B0B0E]">
-        {page.pageNumber} / {totalPages}
-      </figcaption>
     </figure>
   );
 }
@@ -190,12 +196,14 @@ export default function ChapterReaderPage() {
     return [...rawPages].sort((a, b) => a.pageNumber - b.pageNumber);
   }, [rawPages]);
 
-  // Preload next 2 pages from current scroll position
+  // Preload next 3 pages from current scroll position
   useEffect(() => {
     if (pages.length === 0 || typeof window === 'undefined') return;
-    const targets = [pages[currentPageIdx + 1], pages[currentPageIdx + 2]].filter(
-      (p): p is ChapterPage => Boolean(p && p.fileId)
-    );
+    const targets = [
+      pages[currentPageIdx + 1],
+      pages[currentPageIdx + 2],
+      pages[currentPageIdx + 3],
+    ].filter((p): p is ChapterPage => Boolean(p && p.fileId));
 
     for (const p of targets) {
       if (preloadedFileIds.current.has(p.fileId)) continue;
@@ -302,7 +310,7 @@ export default function ChapterReaderPage() {
 
           <div className="flex items-center gap-1.5 shrink-0">
             {pages.length > 0 && (
-              <span className="font-mono-num text-[11px] text-zinc-400 px-2 hidden xs:inline sm:inline">
+              <span className="font-mono-num text-[11px] text-zinc-400 px-1.5 sm:px-2">
                 {currentPageIdx + 1}/{pages.length}
               </span>
             )}
@@ -345,8 +353,8 @@ export default function ChapterReaderPage() {
       {/* Main Reader Content */}
       <main className="flex-1 w-full">
         {pages.length > 0 ? (
-          <div className="w-full max-w-3xl mx-auto px-0 sm:px-4 sm:py-4">
-            <div className="flex flex-col">
+          <div className="w-full max-w-3xl mx-auto p-0 sm:px-4 sm:py-4">
+            <div className="flex flex-col gap-0 m-0 p-0 leading-[0]">
               {pages.map((page, index) => (
                 <ReaderPageImage
                   key={`${activeChapter.id}-${page.pageNumber}-${page.fileId}`}

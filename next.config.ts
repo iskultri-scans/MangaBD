@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
 
   // ✅ Allow AI Studio / Cloud Run preview hosts to access Next.js dev resources
   allowedDevOrigins: [
+    '**.run.app',
+    '*.asia-northeast1.run.app',
     '*.asia-southeast1.run.app',
     '*.run.app',
     'localhost',

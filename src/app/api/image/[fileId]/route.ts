@@ -27,9 +27,15 @@ export async function GET(
   if (result.contentLength) {
     headers.set('Content-Length', result.contentLength);
   }
-  // Telegram file_ids are immutable — allow browsers and CDNs to cache aggressively
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  headers.set('CDN-Cache-Control', 'public, max-age=31536000, immutable');
+  if (result.etag) {
+    headers.set('ETag', result.etag);
+  }
+  if (result.lastModified) {
+    headers.set('Last-Modified', result.lastModified);
+  }
+  // Telegram file_ids are immutable — allow browsers and Vercel edge CDNs to cache aggressively
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable, s-maxage=31536000');
+  headers.set('CDN-Cache-Control', 'public, max-age=31536000, immutable, s-maxage=31536000');
   headers.set('X-Content-Type-Options', 'nosniff');
 
   return new NextResponse(result.stream, {
