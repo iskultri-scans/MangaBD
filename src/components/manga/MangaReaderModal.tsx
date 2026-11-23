@@ -100,22 +100,40 @@ export function MangaReaderModal({
 
       {/* Vertical Webtoon / Manga Page Stream */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto py-4 px-2 sm:px-4 space-y-2">
+        <div
+          className="max-w-3xl mx-auto p-0 sm:px-4 sm:py-4 flex flex-col gap-0 leading-[0] select-none"
+          onContextMenu={(e) => e.preventDefault()}
+        >
           {pages.length === 0 ? (
-            <div className="py-24 text-center text-zinc-400 text-sm">
+            <div className="py-24 text-center text-zinc-400 text-sm leading-normal">
               No hosted pages found for this chapter.
             </div>
           ) : (
-            pages.map((page) => {
+            pages.map((page, index) => {
               const src = `/api/image/${encodeURIComponent(page.fileId)}`;
               return (
-                <figure key={`${page.pageNumber}-${page.fileId}`} className="w-full bg-[#141419] rounded-md overflow-hidden">
+                <figure
+                  key={`${page.pageNumber}-${page.fileId}`}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onDragStart={(e) => e.preventDefault()}
+                  className="relative w-full m-0 p-0 border-0 rounded-none leading-[0] bg-[#0B0B0E] select-none"
+                >
                   <img
                     src={src}
                     alt={`${mangaTitle} Chapter ${chapter.chapterNumber} — Page ${page.pageNumber}`}
-                    loading="lazy"
+                    loading={index < 2 ? 'eager' : 'lazy'}
                     decoding="async"
-                    className="w-full h-auto block mx-auto"
+                    draggable={false}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onDragStart={(e) => e.preventDefault()}
+                    className="protected-page-img w-full h-auto block m-0 p-0 border-0 rounded-none select-none"
+                  />
+                  <div
+                    aria-hidden="true"
+                    draggable={false}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onDragStart={(e) => e.preventDefault()}
+                    className="protected-page-img absolute inset-0 z-10 pointer-events-auto bg-transparent touch-pan-y select-none"
                   />
                 </figure>
               );

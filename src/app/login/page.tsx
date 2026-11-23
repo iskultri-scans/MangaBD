@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/ui/Toast';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { BrandLogo } from '@/components/layout/BrandLogo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,9 +56,9 @@ export default function LoginPage() {
         <div className="text-center mb-7">
           <Link
             href="/"
-            className="font-display text-3xl font-bold tracking-tight text-[var(--text-primary)] inline-block"
+            className="inline-block"
           >
-            Manga<span className="text-[var(--accent)]">BD</span>
+            <BrandLogo size="lg" />
           </Link>
           <p className="text-sm text-[var(--text-muted)] mt-1.5">
             Sign in with Google to access your reading shelf &amp; Telegram alerts

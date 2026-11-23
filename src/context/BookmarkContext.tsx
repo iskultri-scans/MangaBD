@@ -12,7 +12,7 @@ import {
   type Manga,
 } from '@/lib/firestore';
 
-const STORAGE_KEY = 'iskultrip-bookmarks';
+const STORAGE_KEY = 'mangabd-bookmarks';
 
 function getLocalBookmarks(): BookmarkData[] {
   if (typeof window === 'undefined') return [];

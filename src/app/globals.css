@@ -292,3 +292,12 @@ body {
   background: var(--accent-glow-strong);
   color: var(--text-primary);
 }
+
+/* ─── Reader Image Protection (deterrent) ──────────── */
+.protected-page-img {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
+

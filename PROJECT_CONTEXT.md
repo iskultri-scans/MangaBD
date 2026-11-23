@@ -1,6 +1,6 @@
 # PROJECT_CONTEXT.md — MangaBD
 
-> **Status:** Round 6 Complete (Seamless Reader & Image CDN Speed)  
+> **Status:** Round 7 Complete (Image Protection & Brand Refresh)  
 > **Last Updated:** 2026-11-23  
 > **Owner:** Mehedi  
 > **Role Structure:** PM (external AI) → Lead Engineer (codebase agent)
@@ -222,6 +222,7 @@
 - **2026-11-23 (Round 5 — Audit, Restore & Polish):** Unified `/admin/chapters` by reusing `<ChapterManager />`, upgraded metadata auto-fill to public multi-source cascade (`Jikan/MAL → AniList → MangaDex`) with inline title lookup, cleaned up leftover `ISKULTRIP` branding/cookies, and added client JPEG compression fallback, Telegram `429` retry + `AbortSignal.timeout`, atomic `runTransaction` request upvotes, and auto-polling in `TelegramConnectCard`.
 - **2026-11-23 (Commit Identity Rule):** Locked commit author identity to repo owner (`mangabd <mangabd99@gmail.com>`) to prevent Vercel Hobby + private repo deployment blocks triggered by mismatched commit authors.
 - **2026-11-23 (Round 6 — Seamless Reader & Speed):** Removed inter-page bars/borders/gaps in `/read/[slug]/[chapter]` (`flex-col gap-0`, `line-height: 0`, `block w-full h-auto`), switched pages 1–2 to `loading="eager"` with 3-page lookahead preload, and added `s-maxage=31536000` edge caching + `ETag`/`Last-Modified` pass-through in `/api/image/[fileId]`.
+- **2026-11-23 (Round 7 — Image Protection & Branding):** Added download-deterrent reader protection (`draggable={false}`, contextmenu/drag/callout block, scroll-safe transparent overlay `div`), optional default-ON `"MangaBD"` canvas watermark on chapter upload, public/free-reading `/api/image/[fileId]` unchanged, and unified swappable `MangaBD` SVG/PNG branding across header, favicon, PWA icons, and OG image.
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
@@ -240,3 +241,4 @@
   - `B4`: Added WebP→JPEG(+scale) fallback in `ChapterManager`, `429` `retry_after` + `AbortSignal.timeout` in `src/lib/telegram.ts`, atomic `runTransaction` in `upvoteRequest` (`src/lib/firestore.ts`), and background auto-poll + focus/visibility refresh in `TelegramConnectCard.tsx`.
 - **2026-11-23 (Commit Identity Fix):** Documented mandatory git commit identity (`mangabd <mangabd99@gmail.com>`) in `PROJECT_CONTEXT.md` rules and changelog.
 - **2026-11-23 (Round 6):** Seamless vertical reader (`gap-0`, `leading-[0]`, `block w-full h-auto`, no per-page borders/captions), eager first-2-page loading + 3-page preload, and `s-maxage=31536000` + `ETag`/`Last-Modified` pass-through in `/api/image/[fileId]` and `src/lib/telegram.ts`.
+- **2026-11-23 (Round 7):** Added reader image download deterrents (`.protected-page-img`, `draggable={false}`, contextmenu/drag block, scroll-safe transparent overlay `div`), default-ON subtle `"MangaBD"` canvas watermark on admin chapter upload, swappable `BrandLogo`/`BrandMark` (`/public/brand/mangabd-mark.svg`, `/public/logo.svg`, `/src/app/icon.svg`, regenerated PWA PNG icons & `og-default.png`), and migrated remaining `iskultrip-*` localStorage keys to `mangabd-*`.

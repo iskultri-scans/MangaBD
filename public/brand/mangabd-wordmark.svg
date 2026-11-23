@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" fill="none">
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="#0B0B0E" stroke="#EF4444" stroke-opacity="0.4" stroke-width="1.5"/>
+  <path
+    d="M11 14C11 12.3431 12.3431 11 14 11H34C35.6569 11 37 12.3431 37 14V29C37 30.6569 35.6569 32 34 32H24L17 38V32H14C12.3431 32 11 30.6569 11 29V14Z"
+    fill="#18181D"
+    stroke="#F4F4F5"
+    stroke-width="2"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M16.5 25.5V17L24 22L31.5 17V25.5"
+    stroke="#EF4444"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <text
+    x="58"
+    y="32"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    font-size="25"
+    font-weight="800"
+    letter-spacing="-0.6"
+    fill="#F4F4F5"
+  >
+    Manga<tspan fill="#EF4444">BD</tspan>
+  </text>
+</svg>

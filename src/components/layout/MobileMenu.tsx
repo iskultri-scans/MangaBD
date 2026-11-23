@@ -29,6 +29,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useContentMode } from '@/context/ContentModeContext';
 import { SITE_CONFIG } from '@/lib/config';
 import { TelegramConnectCard } from './TelegramConnectCard';
+import { BrandLogo } from './BrandLogo';
 
 interface MobileMenuProps {
   isOpen: boolean;
@@ -118,9 +119,9 @@ export function MobileMenu({ isOpen, onClose, genres }: MobileMenuProps) {
           <Link
             href="/"
             onClick={onClose}
-            className="font-display font-bold text-xl tracking-tight text-[var(--text-primary)] whitespace-nowrap"
+            className="whitespace-nowrap inline-flex items-center"
           >
-            Manga<span className="text-[var(--accent)]">BD</span>
+            <BrandLogo size="sm" />
           </Link>
           <button
             type="button"

@@ -1,6 +1,7 @@
-const CACHE_NAME = 'mangabd-v2';
+const CACHE_NAME = 'mangabd-v3';
 const STATIC_ASSETS = [
   '/manifest.json',
+  '/brand/mangabd-mark.svg',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
   '/no-cover.png',

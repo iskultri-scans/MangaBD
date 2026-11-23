@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { BrandLogo } from '@/components/layout/BrandLogo';
 
 interface AdminSidebarProps {
   onSignOut?: () => void;
@@ -67,9 +68,9 @@ export function AdminSidebar({ onSignOut }: AdminSidebarProps) {
         <div className="px-6 py-5 border-b border-[var(--border-color)]">
           <Link
             href="/admin"
-            className="font-display text-2xl font-bold tracking-tight text-[var(--text-primary)] inline-block"
+            className="inline-block"
           >
-            Manga<span className="text-[var(--accent)]">BD</span>
+            <BrandLogo size="md" />
           </Link>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)] mt-1">
             Editorial Console

@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { Facebook, Send, ArrowUpRight } from 'lucide-react';
 import { SITE_CONFIG } from '@/lib/config';
+import { BrandLogo } from './BrandLogo';
 
 interface FooterProps {
   genres: { name: string; slug: string }[];
@@ -22,9 +23,9 @@ export function Footer({ genres }: FooterProps) {
           <div>
             <Link
               href="/"
-              className="font-display font-bold text-2xl tracking-tight text-[var(--text-primary)] inline-block mb-3"
+              className="inline-block mb-3"
             >
-              Manga<span className="text-[var(--accent)]">BD</span>
+              <BrandLogo size="md" />
             </Link>
             <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-5 max-w-xs">
               {SITE_CONFIG.description}

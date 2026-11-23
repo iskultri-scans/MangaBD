@@ -8,6 +8,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
 import { NotificationBell } from './NotificationBell';
 import { ContentModeToggle } from './ContentModeToggle';
+import { BrandLogo } from './BrandLogo';
 import { useBookmarks } from '@/context/BookmarkContext';
 
 interface NavbarProps {
@@ -108,11 +109,9 @@ export function Navbar({
         {/* Zone 1: Brand Wordmark */}
         <Link
           href="/"
-          className="font-display font-bold text-xl sm:text-2xl tracking-tight text-[var(--text-primary)] whitespace-nowrap shrink-0 flex items-center gap-2"
+          className="whitespace-nowrap shrink-0 flex items-center gap-2"
         >
-          <span>
-            Manga<span className="text-[var(--accent)]">BD</span>
-          </span>
+          <BrandLogo size="md" />
           <span
             className="hidden xl:inline-block text-[10px] font-mono-num uppercase tracking-widest px-1.5 py-0.5 rounded"
             style={{

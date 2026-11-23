@@ -8,6 +8,7 @@ import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirebaseAuth } from '@/lib/firebase';
 import { useToast } from '@/components/ui/Toast';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { BrandLogo } from '@/components/layout/BrandLogo';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -49,9 +50,9 @@ export default function AdminLoginPage() {
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--accent-glow)] text-[var(--accent)] mb-3">
             <ShieldCheck size={24} />
           </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-            Manga<span className="text-[var(--accent)]">BD</span> Admin
-          </h1>
+          <div className="flex justify-center">
+            <BrandLogo size="md" suffix="Admin" />
+          </div>
           <p className="text-xs text-[var(--text-muted)] mt-1.5">
             Sign in with your authorized Google admin account
           </p>

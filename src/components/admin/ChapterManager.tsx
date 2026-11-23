@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2, RefreshCw, Shield } from 'lucide-react';
 import {
   addChapter,
   deleteChapter,
@@ -33,12 +33,51 @@ async function encodeCanvasBlob(
   return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mimeType, quality));
 }
 
+function stampMangaBDWatermark(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+): void {
+  const fontSize = Math.max(14, Math.min(28, Math.round(width * 0.022)));
+  const paddingX = Math.max(12, Math.round(fontSize * 0.8));
+  const paddingY = Math.max(10, Math.round(fontSize * 0.65));
+
+  ctx.save();
+  ctx.font = `700 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  ctx.textBaseline = 'bottom';
+  ctx.textAlign = 'right';
+
+  // Crisp subtle bottom-right attribution badge (legible on both dark & white panels)
+  ctx.lineWidth = Math.max(2, Math.round(fontSize * 0.14));
+  ctx.strokeStyle = 'rgba(11, 11, 14, 0.34)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.32)';
+  ctx.strokeText('MangaBD', width - paddingX, height - paddingY);
+  ctx.fillText('MangaBD', width - paddingX, height - paddingY);
+
+  // Very faint diagonal mid-page watermark so cropping the corner still keeps subtle attribution
+  const tileFontSize = Math.max(20, Math.min(44, Math.round(width * 0.042)));
+  ctx.font = `700 ${tileFontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate(-Math.PI / 6);
+  ctx.fillStyle = 'rgba(140, 140, 148, 0.075)';
+  ctx.fillText('MangaBD', 0, 0);
+  ctx.restore();
+}
+
 /**
- * Compresses an image file > 3.5MB using Canvas (WebP first, then JPEG fallback,
- * plus one gentle 0.75x downscale pass if still above 4MB) so it stays under the 4MB server cap.
+ * Prepares a chapter page image for upload:
+ * - Optionally stamps a subtle semi-transparent "MangaBD" watermark via Canvas
+ * - Compresses via WebP -> JPEG -> 0.75x downscale if > 3.5MB (or if canvas re-encode > 4MB)
  */
-async function compressImageIfNeeded(file: File): Promise<File> {
-  if (file.size <= COMPRESS_THRESHOLD_BYTES) return file;
+async function compressImageIfNeeded(
+  file: File,
+  watermarkEnabled: boolean
+): Promise<File> {
+  if (!watermarkEnabled && file.size <= COMPRESS_THRESHOLD_BYTES) {
+    return file;
+  }
 
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement('canvas');
@@ -52,7 +91,11 @@ async function compressImageIfNeeded(file: File): Promise<File> {
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close();
 
-  const qualities = [0.85, 0.72, 0.58];
+  if (watermarkEnabled) {
+    stampMangaBDWatermark(ctx, canvas.width, canvas.height);
+  }
+
+  const qualities = file.size <= COMPRESS_THRESHOLD_BYTES ? [0.9, 0.8, 0.7] : [0.85, 0.72, 0.58];
   const baseName = file.name.replace(/\.[^.]+$/, '');
 
   // 1) Try WebP
@@ -110,6 +153,7 @@ export function ChapterManager({
   // Resume map: pageNumber -> ChapterPage (persists across partial failures for seamless resume)
   const [uploadedPagesMap, setUploadedPagesMap] = useState<Record<number, ChapterPage>>({});
   const [notifyTelegram, setNotifyTelegram] = useState(true);
+  const [watermarkEnabled, setWatermarkEnabled] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [adding, setAdding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Chapter | null>(null);
@@ -158,7 +202,7 @@ export function ChapterManager({
     pageNumber: number,
     authHeaders: Record<string, string>
   ): Promise<ChapterPage> => {
-    const preparedFile = await compressImageIfNeeded(file);
+    const preparedFile = await compressImageIfNeeded(file, watermarkEnabled);
     let lastError: Error = new Error(`Page ${pageNumber} upload failed`);
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -479,19 +523,35 @@ export function ChapterManager({
             />
           </div>
 
-          <label className="flex items-center gap-2.5 cursor-pointer pt-1">
-            <input
-              type="checkbox"
-              checked={notifyTelegram}
-              onChange={(e) => setNotifyTelegram(e.target.checked)}
-              disabled={adding}
-              className="w-4 h-4 rounded accent-[var(--accent)]"
-            />
-            <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-primary)]">
-              <Send size={12} className="text-[var(--accent)]" />
-              Notify Telegram Subscribers (Main Channel + Bookmarked Users)
-            </span>
-          </label>
+          <div className="space-y-2 pt-1">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={watermarkEnabled}
+                onChange={(e) => setWatermarkEnabled(e.target.checked)}
+                disabled={adding}
+                className="w-4 h-4 rounded accent-[var(--accent)]"
+              />
+              <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-primary)]">
+                <Shield size={12} className="text-[var(--accent)]" />
+                Stamp subtle &ldquo;MangaBD&rdquo; watermark on uploaded pages
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyTelegram}
+                onChange={(e) => setNotifyTelegram(e.target.checked)}
+                disabled={adding}
+                className="w-4 h-4 rounded accent-[var(--accent)]"
+              />
+              <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-primary)]">
+                <Send size={12} className="text-[var(--accent)]" />
+                Notify Telegram Subscribers (Main Channel + Bookmarked Users)
+              </span>
+            </label>
+          </div>
 
           <div className="flex gap-2 pt-1">
             <button

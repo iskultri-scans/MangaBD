@@ -76,7 +76,9 @@ function ReaderPageImage({
     <figure
       ref={figureRef}
       data-page-index={index}
-      className="relative w-full m-0 p-0 border-0 rounded-none leading-[0] bg-[#0B0B0E]"
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+      className="relative w-full m-0 p-0 border-0 rounded-none leading-[0] bg-[#0B0B0E] select-none"
     >
       {status === 'loading' && (
         <div className="w-full min-h-[280px] sm:min-h-[420px] flex flex-col items-center justify-center gap-2 text-zinc-400 leading-normal bg-[#131317]">
@@ -105,20 +107,34 @@ function ReaderPageImage({
           </button>
         </div>
       ) : (
-        <img
-          ref={imgRef}
-          key={`${page.fileId}-${retryCount}`}
-          src={src}
-          alt={`${mangaTitle} Chapter ${chapterNumber} — Page ${page.pageNumber}`}
-          loading={index < 2 ? 'eager' : 'lazy'}
-          decoding="async"
-          fetchPriority={index === 0 ? 'high' : 'auto'}
-          onLoad={() => setStatus('loaded')}
-          onError={() => setStatus('error')}
-          className={`block w-full m-0 p-0 border-0 rounded-none select-none ${
-            status === 'loading' ? 'h-0 overflow-hidden opacity-0' : 'h-auto opacity-100'
-          }`}
-        />
+        <>
+          <img
+            ref={imgRef}
+            key={`${page.fileId}-${retryCount}`}
+            src={src}
+            alt={`${mangaTitle} Chapter ${chapterNumber} — Page ${page.pageNumber}`}
+            loading={index < 2 ? 'eager' : 'lazy'}
+            decoding="async"
+            fetchPriority={index === 0 ? 'high' : 'auto'}
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
+            onLoad={() => setStatus('loaded')}
+            onError={() => setStatus('error')}
+            className={`protected-page-img block w-full m-0 p-0 border-0 rounded-none select-none ${
+              status === 'loading' ? 'h-0 overflow-hidden opacity-0' : 'h-auto opacity-100'
+            }`}
+          />
+          {status === 'loaded' && (
+            <div
+              aria-hidden="true"
+              draggable={false}
+              onContextMenu={(e) => e.preventDefault()}
+              onDragStart={(e) => e.preventDefault()}
+              className="protected-page-img absolute inset-0 z-10 pointer-events-auto bg-transparent touch-pan-y select-none"
+            />
+          )}
+        </>
       )}
     </figure>
   );
@@ -354,7 +370,10 @@ export default function ChapterReaderPage() {
       <main className="flex-1 w-full">
         {pages.length > 0 ? (
           <div className="w-full max-w-3xl mx-auto p-0 sm:px-4 sm:py-4">
-            <div className="flex flex-col gap-0 m-0 p-0 leading-[0]">
+            <div
+              className="flex flex-col gap-0 m-0 p-0 leading-[0] select-none"
+              onContextMenu={(e) => e.preventDefault()}
+            >
               {pages.map((page, index) => (
                 <ReaderPageImage
                   key={`${activeChapter.id}-${page.pageNumber}-${page.fileId}`}

@@ -27,7 +27,7 @@ export function useNotifications() {
   return useContext(NotificationContext);
 }
 
-const STORAGE_KEY = 'iskultrip-read-notifications';
+const STORAGE_KEY = 'mangabd-read-notifications';
 
 function getReadIds(): Set<string> {
   if (typeof window === 'undefined') return new Set();

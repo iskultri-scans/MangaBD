@@ -14,7 +14,7 @@ const ThemeContext = createContext<ThemeContextType>({
   toggleTheme: () => {},
 });
 
-const THEME_STORAGE_KEY = 'iskultrip-theme';
+const THEME_STORAGE_KEY = 'mangabd-theme';
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Always start with 'dark' to match SSR HTML and prevent hydration mismatches
