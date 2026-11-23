@@ -210,9 +210,14 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
 
       const chapterNum = parseInt(newChapterNumber, 10);
       const chapterTitle = newChapterTitle.trim() || `Chapter ${chapterNum}`;
+      const internalReaderPath = mangaSlug
+        ? `/read/${encodeURIComponent(mangaSlug)}/${chapterNum}`
+        : `/manga/${mangaId}#chapter-${chapterNum}`;
       const effectiveReadLink =
-        newChapterLink.trim() ||
-        `${mangaSlug ? `/manga/${mangaSlug}` : `/manga/${mangaId}`}#chapter-${chapterNum}`;
+        uploadedPages.length > 0
+          ? newChapterLink.trim() || internalReaderPath
+          : newChapterLink.trim() ||
+            `${mangaSlug ? `/manga/${mangaSlug}` : `/manga/${mangaId}`}#chapter-${chapterNum}`;
 
       await addChapter(mangaId, {
         mangaId,
@@ -224,7 +229,9 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
 
       if (notifyTelegram) {
         const chapterUrl = mangaSlug
-          ? `${window.location.origin}/manga/${mangaSlug}`
+          ? uploadedPages.length > 0
+            ? `${window.location.origin}/read/${encodeURIComponent(mangaSlug)}/${chapterNum}`
+            : `${window.location.origin}/manga/${mangaSlug}`
           : window.location.origin;
 
         const broadcastRes = await fetch('/api/telegram/broadcast', {
@@ -478,7 +485,17 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
                 </div>
               </div>
               <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                {chapter.readLink && (
+                {chapter.pages && chapter.pages.length > 0 && mangaSlug ? (
+                  <a
+                    href={`/read/${encodeURIComponent(mangaSlug)}/${chapter.chapterNumber}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+                    title="Open internal reader"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                ) : chapter.readLink ? (
                   <a
                     href={chapter.readLink}
                     target="_blank"
@@ -487,7 +504,7 @@ export function ChapterManager({ mangaId, mangaTitle, mangaSlug }: ChapterManage
                   >
                     <ExternalLink size={14} />
                   </a>
-                )}
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setDeleteTarget(chapter)}

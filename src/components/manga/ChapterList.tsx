@@ -1,20 +1,20 @@
 'use client';
 
 import React, { useState } from 'react';
-import { BookOpen, ExternalLink, ChevronUp, Search, Layers } from 'lucide-react';
+import Link from 'next/link';
+import { BookOpen, ExternalLink, ChevronUp, Search } from 'lucide-react';
 import type { Chapter } from '@/lib/firestore';
-import { MangaReaderModal } from './MangaReaderModal';
 
 interface ChapterListProps {
   chapters: Chapter[];
   mangaTitle: string;
+  mangaSlug: string;
 }
 
-export function ChapterList({ chapters, mangaTitle }: ChapterListProps) {
+export function ChapterList({ chapters, mangaTitle, mangaSlug }: ChapterListProps) {
   const [expanded, setExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortAsc, setSortAsc] = useState(false);
-  const [activeChapter, setActiveChapter] = useState<Chapter | null>(null);
 
   const filteredChapters = chapters.filter(
     (ch) =>
@@ -25,28 +25,6 @@ export function ChapterList({ chapters, mangaTitle }: ChapterListProps) {
   const sortedChapters = sortAsc
     ? [...filteredChapters].sort((a, b) => a.chapterNumber - b.chapterNumber)
     : filteredChapters;
-
-  // Ordered ascending by chapterNumber for prev/next navigation inside reader
-  const ascHostedChapters = [...chapters]
-    .filter((ch) => ch.pages && ch.pages.length > 0)
-    .sort((a, b) => a.chapterNumber - b.chapterNumber);
-
-  const activeIdx = activeChapter
-    ? ascHostedChapters.findIndex((c) => c.id === activeChapter.id)
-    : -1;
-  const prevChapter = activeIdx > 0 ? ascHostedChapters[activeIdx - 1] : null;
-  const nextChapter =
-    activeIdx >= 0 && activeIdx < ascHostedChapters.length - 1
-      ? ascHostedChapters[activeIdx + 1]
-      : null;
-
-  const handleChapterClick = (chapter: Chapter) => {
-    if (chapter.pages && chapter.pages.length > 0) {
-      setActiveChapter(chapter);
-    } else if (chapter.readLink) {
-      window.open(chapter.readLink, '_blank', 'noopener,noreferrer');
-    }
-  };
 
   return (
     <div className="mt-8">
@@ -122,12 +100,13 @@ export function ChapterList({ chapters, mangaTitle }: ChapterListProps) {
             ) : (
               sortedChapters.map((chapter) => {
                 const hostedCount = chapter.pages?.length || 0;
+                const hasPages = hostedCount > 0;
+                const internalHref = `/read/${encodeURIComponent(mangaSlug)}/${chapter.chapterNumber}`;
+
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={chapter.id}
-                    onClick={() => handleChapterClick(chapter)}
-                    className="w-full flex items-center justify-between px-4 py-3 min-h-[52px] text-left transition-colors hover:bg-[var(--bg-subtle)] group cursor-pointer"
+                    className="w-full flex items-center justify-between gap-3 px-4 py-3 min-h-[56px] transition-colors hover:bg-[var(--bg-subtle)] group"
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <span
@@ -144,38 +123,37 @@ export function ChapterList({ chapters, mangaTitle }: ChapterListProps) {
                           {chapter.title || `Chapter ${chapter.chapterNumber}`}
                         </p>
                         <p className="text-xs text-[var(--text-muted)] truncate">
-                          {hostedCount > 0 ? `${hostedCount} pages · Built-in Reader` : mangaTitle}
+                          {hasPages ? `${hostedCount} pages · Internal Reader` : mangaTitle}
                         </p>
                       </div>
                     </div>
-                    {hostedCount > 0 ? (
-                      <Layers
-                        size={15}
-                        className="shrink-0 text-[var(--accent)] ml-3"
-                        aria-label="Open built-in reader"
-                      />
-                    ) : (
-                      <ExternalLink
-                        size={14}
-                        className="shrink-0 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors ml-3"
-                      />
-                    )}
-                  </button>
+
+                    {hasPages ? (
+                      <Link
+                        href={internalHref}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors"
+                      >
+                        <BookOpen size={13} />
+                        Read
+                      </Link>
+                    ) : chapter.readLink ? (
+                      <a
+                        href={chapter.readLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                      >
+                        Read
+                        <ExternalLink size={12} />
+                      </a>
+                    ) : null}
+                  </div>
                 );
               })
             )}
           </div>
         </div>
       )}
-
-      <MangaReaderModal
-        chapter={activeChapter}
-        mangaTitle={mangaTitle}
-        onClose={() => setActiveChapter(null)}
-        onSelectChapter={(ch) => setActiveChapter(ch)}
-        prevChapter={prevChapter}
-        nextChapter={nextChapter}
-      />
     </div>
   );
 }

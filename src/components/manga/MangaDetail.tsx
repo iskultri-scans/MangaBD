@@ -165,7 +165,7 @@ export function MangaDetail({ manga }: MangaDetailProps) {
 
         {/* Chapter List */}
         {manga.chapters && manga.chapters.length > 0 ? (
-          <ChapterList chapters={manga.chapters} mangaTitle={manga.title} />
+          <ChapterList chapters={manga.chapters} mangaTitle={manga.title} mangaSlug={manga.slug} />
         ) : (
           <div
             className="mt-8 rounded-lg p-8 text-center"

@@ -111,7 +111,7 @@ export default function EditMangaPage() {
       </div>
 
       <div className="pt-6 border-t border-[var(--border-color)]">
-        <ChapterManager mangaId={id} mangaTitle={manga.title || ''} />
+        <ChapterManager mangaId={id} mangaTitle={manga.title || ''} mangaSlug={manga.slug} />
       </div>
     </div>
   );

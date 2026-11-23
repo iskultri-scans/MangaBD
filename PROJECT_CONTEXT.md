@@ -115,15 +115,16 @@
     │   ├── genre/                        # Genre listing pages
     │   ├── login/                        # User/Admin login page
     │   ├── manga/                        # Manga detail & chapter list pages
+    │   ├── read/[slug]/[chapter]/page.tsx# Internal vertical-scroll chapter reader (/api/image/[fileId])
     │   ├── requests/                     # Community manga request board
     │   └── search/                       # Search page
     ├── components/
-    │   ├── admin/ChapterManager.tsx      # Admin chapter form: multi-image batched upload + broadcast toggle
+    │   ├── admin/ChapterManager.tsx      # Admin chapter form: multi-image batched upload + internal reader fallback
     │   ├── layout/TelegramConnectCard.tsx# User profile card: Connect/Disconnect Telegram + notifications toggle
     │   ├── layout/UserMenu.tsx           # Desktop user dropdown embedding TelegramConnectCard
     │   ├── layout/MobileMenu.tsx         # Mobile drawer embedding TelegramConnectCard
-    │   ├── manga/ChapterList.tsx         # Chapter list opening MangaReaderModal or external readLink
-    │   ├── manga/MangaReaderModal.tsx    # Vertical-scroll reader rendering /api/image/[fileId] pages
+    │   ├── manga/ChapterList.tsx         # Chapter list linking Read button to /read/{slug}/{chapter} or external readLink
+    │   ├── manga/MangaReaderModal.tsx    # Legacy modal reader component
     │   └── ui/                           # Reusable UI primitives
     ├── context/                          # React contexts (Auth, Bookmark, ContentMode, Notification, Theme)
     ├── hooks/                            # Custom hooks (useDebounce, usePagination, use-mobile, use-toast)
@@ -216,6 +217,7 @@
 - **2026-11-19 (P2 Reminder):** P2 premium ফিচার ইমপ্লিমেন্ট করার সময় `firestore.rules`-এর `hasOnly` whitelist-এ `isPremium` / `unlock` ফিল্ডগুলো যোগ করতে হবে।
 - **2026-11-19 (Vote Cap Note):** `requests` collection-এ `upvotedBy.size() <= 500` ক্যাপ আছে (৫০০ ভোটের পর upvote বন্ধ — গ্রহণযোগ্য)।
 - **2026-11-22 (Mirror Auto-Deploy):** Decided to keep `mangabd/mangabd` (`origin`) as business source of truth and `iskultri-scans/mangabd` (`mirror`) as deploy-only private mirror for Vercel auto-deploy; all commits must be dual-pushed to `origin` and `mirror`.
+- **2026-11-23 (Round 4 — Internal Reader):** Added dedicated public reader route `/read/[slug]/[chapter]` rendering Telegram CDN pages via `/api/image/[fileId]` with next-2-page preloading and retry, while preserving external `readLink` fallback for legacy/external chapters.
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
@@ -226,3 +228,4 @@
 - **2026-11-19 (Round 3.5):** Fixed `addChapter`/`addBookmark`/`addRequest` to use `serverTimestamp()` and clean types (removed `chapters[0].createdAt` copy, `undefined as unknown as never` hacks, and `bookmarkedAt: null as any`), documented 500-vote cap in `PROJECT_CONTEXT.md`.
 - **2026-11-20:** Updated `firebase-applet-config.json` for `mangabd-prod` (`(default)` DB), added `firebase.json`, and deployed `firestore.rules` + `firestore.indexes.json` to `mangabd-prod`.
 - **2026-11-22:** Configured `mirror` remote (`iskultri-scans/mangabd`) and documented the dual-push auto-deploy workflow in `PROJECT_CONTEXT.md`.
+- **2026-11-23 (Round 4):** Added `/read/[slug]/[chapter]` vertical-scroll reader (sticky chapter nav, lazy-load + next-2-page preload, page numbers, retry on error, external fallback), updated `ChapterList` + `MangaDetail` Read buttons to route hosted chapters to `/read/{slug}/{chapter}`, and updated `ChapterManager` `effectiveReadLink` fallback to `/read/{slug}/{chapter}`.
