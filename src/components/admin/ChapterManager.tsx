@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2, RefreshCw, Shield } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, BookOpen, Upload, Send, Layers, Loader2, RefreshCw, Shield, AlertTriangle } from 'lucide-react';
 import {
   addChapter,
   deleteChapter,
@@ -9,6 +9,16 @@ import {
   type Chapter,
   type ChapterPage,
 } from '@/lib/firestore';
+import {
+  ATTEMPT_FETCH_TIMEOUT_MS,
+  MAX_RETRIES,
+  PAGE_STUCK_TIMEOUT_MS,
+  UPLOAD_CONCURRENCY,
+  preparePageImageForUpload,
+  runPageUploadBatch,
+  type PageFailureInfo,
+  type PreparedPageImage,
+} from '@/lib/chapter-upload';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/ui/Toast';
 import { DeleteConfirm } from './DeleteConfirm';
@@ -18,122 +28,6 @@ interface ChapterManagerProps {
   mangaTitle: string;
   mangaSlug?: string;
   defaultOpenAdd?: boolean;
-}
-
-const UPLOAD_CONCURRENCY = 3;
-const MAX_RETRIES = 2;
-const COMPRESS_THRESHOLD_BYTES = 3.5 * 1024 * 1024; // 3.5MB -> compress on client
-const SERVER_MAX_BYTES = 4 * 1024 * 1024; // 4MB server cap
-
-async function encodeCanvasBlob(
-  canvas: HTMLCanvasElement,
-  mimeType: string,
-  quality: number
-): Promise<Blob | null> {
-  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mimeType, quality));
-}
-
-function stampMangaBDWatermark(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number
-): void {
-  const fontSize = Math.max(14, Math.min(28, Math.round(width * 0.022)));
-  const paddingX = Math.max(12, Math.round(fontSize * 0.8));
-  const paddingY = Math.max(10, Math.round(fontSize * 0.65));
-
-  ctx.save();
-  ctx.font = `700 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
-  ctx.textBaseline = 'bottom';
-  ctx.textAlign = 'right';
-
-  // Crisp subtle bottom-right attribution badge (legible on both dark & white panels)
-  ctx.lineWidth = Math.max(2, Math.round(fontSize * 0.14));
-  ctx.strokeStyle = 'rgba(11, 11, 14, 0.34)';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.32)';
-  ctx.strokeText('MangaBD', width - paddingX, height - paddingY);
-  ctx.fillText('MangaBD', width - paddingX, height - paddingY);
-
-  // Very faint diagonal mid-page watermark so cropping the corner still keeps subtle attribution
-  const tileFontSize = Math.max(20, Math.min(44, Math.round(width * 0.042)));
-  ctx.font = `700 ${tileFontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.translate(width / 2, height / 2);
-  ctx.rotate(-Math.PI / 6);
-  ctx.fillStyle = 'rgba(140, 140, 148, 0.075)';
-  ctx.fillText('MangaBD', 0, 0);
-  ctx.restore();
-}
-
-/**
- * Prepares a chapter page image for upload:
- * - Optionally stamps a subtle semi-transparent "MangaBD" watermark via Canvas
- * - Compresses via WebP -> JPEG -> 0.75x downscale if > 3.5MB (or if canvas re-encode > 4MB)
- */
-async function compressImageIfNeeded(
-  file: File,
-  watermarkEnabled: boolean
-): Promise<File> {
-  if (!watermarkEnabled && file.size <= COMPRESS_THRESHOLD_BYTES) {
-    return file;
-  }
-
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    bitmap.close();
-    return file;
-  }
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-
-  if (watermarkEnabled) {
-    stampMangaBDWatermark(ctx, canvas.width, canvas.height);
-  }
-
-  const qualities = file.size <= COMPRESS_THRESHOLD_BYTES ? [0.9, 0.8, 0.7] : [0.85, 0.72, 0.58];
-  const baseName = file.name.replace(/\.[^.]+$/, '');
-
-  // 1) Try WebP
-  for (const q of qualities) {
-    const blob = await encodeCanvasBlob(canvas, 'image/webp', q);
-    if (blob && blob.size <= SERVER_MAX_BYTES) {
-      return new File([blob], `${baseName}.webp`, { type: 'image/webp' });
-    }
-  }
-
-  // 2) Fallback to JPEG (handles browsers/images where WebP encoder fails or produces larger output)
-  for (const q of qualities) {
-    const blob = await encodeCanvasBlob(canvas, 'image/jpeg', q);
-    if (blob && blob.size <= SERVER_MAX_BYTES) {
-      return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
-    }
-  }
-
-  // 3) Final downscale fallback (0.75x) + JPEG if ultra-high resolution
-  const scaledCanvas = document.createElement('canvas');
-  scaledCanvas.width = Math.max(1, Math.round(canvas.width * 0.75));
-  scaledCanvas.height = Math.max(1, Math.round(canvas.height * 0.75));
-  const scaledCtx = scaledCanvas.getContext('2d');
-  if (scaledCtx) {
-    scaledCtx.drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
-    for (const q of [0.82, 0.68]) {
-      const blob = await encodeCanvasBlob(scaledCanvas, 'image/jpeg', q);
-      if (blob && blob.size <= SERVER_MAX_BYTES) {
-        return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
-      }
-    }
-  }
-
-  throw new Error(`"${file.name}" could not be compressed under 4MB.`);
-}
-
-async function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function ChapterManager({
@@ -155,6 +49,7 @@ export function ChapterManager({
   const [notifyTelegram, setNotifyTelegram] = useState(true);
   const [watermarkEnabled, setWatermarkEnabled] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [failedPages, setFailedPages] = useState<PageFailureInfo[]>([]);
   const [adding, setAdding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Chapter | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -185,6 +80,7 @@ export function ChapterManager({
     setNewChapterLink('');
     setSelectedFiles([]);
     setUploadedPagesMap({});
+    setFailedPages([]);
     setUploadProgress(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     fetchChapters(defaultOpenAdd);
@@ -195,47 +91,7 @@ export function ChapterManager({
     files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     setSelectedFiles(files);
     setUploadedPagesMap({});
-  };
-
-  const uploadSinglePageWithRetry = async (
-    file: File,
-    pageNumber: number,
-    authHeaders: Record<string, string>
-  ): Promise<ChapterPage> => {
-    const preparedFile = await compressImageIfNeeded(file, watermarkEnabled);
-    let lastError: Error = new Error(`Page ${pageNumber} upload failed`);
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const formData = new FormData();
-        formData.append('startPage', String(pageNumber));
-        formData.append('caption', `${mangaTitle} — Ch. ${newChapterNumber}`);
-        formData.append('file', preparedFile);
-
-        const uploadRes = await fetch('/api/telegram/upload', {
-          method: 'POST',
-          headers: authHeaders,
-          body: formData,
-        });
-        const uploadData = await uploadRes.json();
-
-        if (!uploadRes.ok || !uploadData.ok || !uploadData.pages?.[0]?.fileId) {
-          throw new Error(uploadData.error || `Failed on page ${pageNumber}`);
-        }
-
-        return {
-          pageNumber,
-          fileId: uploadData.pages[0].fileId,
-        };
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt < MAX_RETRIES) {
-          await sleep(500 * (attempt + 1));
-        }
-      }
-    }
-
-    throw lastError;
+    setFailedPages([]);
   };
 
   const handleAddChapter = async () => {
@@ -249,6 +105,7 @@ export function ChapterManager({
     }
 
     setAdding(true);
+    setFailedPages([]);
     try {
       const idToken = user ? await user.getIdToken() : null;
       if (!idToken) {
@@ -269,33 +126,82 @@ export function ChapterManager({
         let completedCount = Object.keys(mergedMap).length;
         setUploadProgress({ current: completedCount, total: selectedFiles.length });
 
-        const failedPages: string[] = [];
-        let cursor = 0;
+        const preparedCache = new Map<number, PreparedPageImage>();
 
-        const worker = async () => {
-          while (cursor < pendingTasks.length) {
-            const task = pendingTasks[cursor++];
-            try {
-              const page = await uploadSinglePageWithRetry(task.file, task.pageNumber, authHeaders);
-              mergedMap[task.pageNumber] = page;
-              completedCount += 1;
-              setUploadedPagesMap({ ...mergedMap });
-              setUploadProgress({ current: completedCount, total: selectedFiles.length });
-            } catch (err) {
-              failedPages.push(
-                `Page ${task.pageNumber}: ${err instanceof Error ? err.message : 'Failed'}`
-              );
+        const batchResult = await runPageUploadBatch({
+          tasks: pendingTasks,
+          concurrency: UPLOAD_CONCURRENCY,
+          maxRetries: MAX_RETRIES,
+          pageTimeoutMs: PAGE_STUCK_TIMEOUT_MS,
+          uploadSingleAttempt: async (task, pageSignal) => {
+            let prepared = preparedCache.get(task.pageNumber);
+            if (!prepared) {
+              prepared = await preparePageImageForUpload(task.file, { watermarkEnabled });
+              preparedCache.set(task.pageNumber, prepared);
             }
-          }
-        };
 
-        await Promise.all(
-          Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pendingTasks.length) }, () => worker())
-        );
+            const attemptController = new AbortController();
+            const onPageAbort = () => attemptController.abort(pageSignal.reason);
+            if (pageSignal.aborted) {
+              attemptController.abort(pageSignal.reason);
+            } else {
+              pageSignal.addEventListener('abort', onPageAbort, { once: true });
+            }
+            const attemptTimer = setTimeout(
+              () =>
+                attemptController.abort(
+                  new Error(
+                    `Upload timed out after ${Math.round(ATTEMPT_FETCH_TIMEOUT_MS / 1000)}s`
+                  )
+                ),
+              ATTEMPT_FETCH_TIMEOUT_MS
+            );
 
-        if (failedPages.length > 0) {
+            try {
+              const formData = new FormData();
+              formData.append('startPage', String(task.pageNumber));
+              formData.append('caption', `${mangaTitle} — Ch. ${newChapterNumber}`);
+              formData.append('file', prepared.file);
+
+              const uploadRes = await fetch('/api/telegram/upload', {
+                method: 'POST',
+                headers: authHeaders,
+                body: formData,
+                signal: attemptController.signal,
+              });
+              const uploadData = await uploadRes.json();
+
+              if (!uploadRes.ok || !uploadData.ok || !uploadData.pages?.[0]?.fileId) {
+                throw new Error(uploadData.error || `Failed on page ${task.pageNumber}`);
+              }
+
+              return {
+                pageNumber: task.pageNumber,
+                fileId: uploadData.pages[0].fileId,
+              };
+            } finally {
+              clearTimeout(attemptTimer);
+              pageSignal.removeEventListener('abort', onPageAbort);
+            }
+          },
+          onPageSuccess: (page) => {
+            mergedMap[page.pageNumber] = page;
+            completedCount += 1;
+            setUploadedPagesMap({ ...mergedMap });
+            setUploadProgress({ current: completedCount, total: selectedFiles.length });
+          },
+          onPageFailure: (failure) => {
+            setFailedPages((prev) =>
+              [...prev.filter((item) => item.pageNumber !== failure.pageNumber), failure].sort(
+                (a, b) => a.pageNumber - b.pageNumber
+              )
+            );
+          },
+        });
+
+        if (batchResult.failedPages.length > 0) {
           throw new Error(
-            `${failedPages.length} page(s) failed (${completedCount}/${selectedFiles.length} saved). Click Resume Upload to finish.`
+            `${batchResult.failedPages.length} page(s) failed (${completedCount}/${selectedFiles.length} saved). Click Resume Upload to finish.`
           );
         }
       }
@@ -367,6 +273,7 @@ export function ChapterManager({
       setNewChapterLink('');
       setSelectedFiles([]);
       setUploadedPagesMap({});
+      setFailedPages([]);
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (!defaultOpenAdd) setShowAddForm(false);
@@ -499,6 +406,7 @@ export function ChapterManager({
                 </span>
                 <span className="font-mono-num text-[var(--accent)] font-semibold">
                   {uploadProgress.current} / {uploadProgress.total} ({progressPct}%)
+                  {failedPages.length > 0 ? ` · ${failedPages.length} failed` : ''}
                 </span>
               </div>
               <div className="w-full h-2 rounded-full bg-[var(--bg-primary)] overflow-hidden border border-[var(--border-color)]">
@@ -507,6 +415,22 @@ export function ChapterManager({
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
+            </div>
+          )}
+
+          {failedPages.length > 0 && (
+            <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 space-y-1.5">
+              <p className="text-xs font-semibold text-red-400 flex items-center gap-1.5">
+                <AlertTriangle size={13} />
+                {failedPages.length} page(s) failed (remaining pages continued):
+              </p>
+              <ul className="max-h-32 overflow-y-auto space-y-1 text-[11px] text-red-200/90 font-mono-num">
+                {failedPages.map((fail) => (
+                  <li key={fail.pageNumber} className="truncate">
+                    Page {fail.pageNumber} ({fail.filename}): {fail.error}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
