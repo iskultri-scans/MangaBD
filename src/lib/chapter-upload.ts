@@ -1,12 +1,13 @@
 import type { ChapterPage } from '@/lib/firestore';
 
-export const UPLOAD_CONCURRENCY = 3;
+export const UPLOAD_CONCURRENCY = 2;
 export const MAX_RETRIES = 2;
 export const COMPRESS_THRESHOLD_BYTES = 3.5 * 1024 * 1024; // 3.5MB -> compress on client
 export const SERVER_MAX_BYTES = 4 * 1024 * 1024; // 4MB server cap
 export const WATERMARK_TIMEOUT_MS = 10_000; // 10s timeout for watermark + canvas.toBlob
-export const PAGE_STUCK_TIMEOUT_MS = 60_000; // 60s stuck-guard per page (across retries)
-export const ATTEMPT_FETCH_TIMEOUT_MS = 25_000; // Per-request fetch timeout so retries can run inside 60s
+export const PAGE_STUCK_TIMEOUT_MS = 180_000; // 180s stuck-guard per page (across retries)
+export const ATTEMPT_FETCH_TIMEOUT_MS = 90_000; // 90s per-request fetch timeout (> 60s Vercel maxDuration)
+export const TIMEOUT_RETRY_DELAY_MS = 3_000; // 3s cooldown before retry after timeout-abort
 const MAX_CANVAS_DIMENSION = 8192;
 
 export interface PreparedPageImage {
@@ -299,6 +300,29 @@ function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+export function isTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'AbortError' || err.name === 'TimeoutError') return true;
+  return /timed out|timeout|stuck-guard|aborted/i.test(err.message);
+}
+
+export function classifyUploadError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || 'Upload failed');
+  if (/^(timeout|HTTP \d{3}(?:\s*\([^)]+\))?|parse error|network error):/i.test(raw)) {
+    return raw;
+  }
+  if (isTimeoutError(err)) {
+    return `timeout: ${raw}`;
+  }
+  if (/Unexpected token|JSON|SyntaxError/i.test(raw)) {
+    return `parse error: ${raw}`;
+  }
+  if (/Failed to fetch|NetworkError|ECONNRESET|ETIMEDOUT/i.test(raw)) {
+    return `network error: ${raw}`;
+  }
+  return raw;
+}
+
 export async function runPageUploadBatch(params: {
   tasks: Array<{ file: File; pageNumber: number }>;
   uploadSingleAttempt: (
@@ -311,6 +335,7 @@ export async function runPageUploadBatch(params: {
   maxRetries?: number;
   pageTimeoutMs?: number;
   retryBaseDelayMs?: number;
+  timeoutRetryDelayMs?: number;
 }): Promise<BatchUploadResult> {
   const {
     tasks,
@@ -321,6 +346,7 @@ export async function runPageUploadBatch(params: {
     maxRetries = MAX_RETRIES,
     pageTimeoutMs = PAGE_STUCK_TIMEOUT_MS,
     retryBaseDelayMs = 500,
+    timeoutRetryDelayMs = TIMEOUT_RETRY_DELAY_MS,
   } = params;
 
   const uploadedPages: ChapterPage[] = [];
@@ -334,7 +360,7 @@ export async function runPageUploadBatch(params: {
     const stuckGuardPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
         const timeoutErr = new Error(
-          `Timed out after ${Math.round(pageTimeoutMs / 1000)}s (stuck-guard)`
+          `timeout: Stuck-guard timed out after ${Math.round(pageTimeoutMs / 1000)}s`
         );
         controller.abort(timeoutErr);
         reject(timeoutErr);
@@ -348,14 +374,17 @@ export async function runPageUploadBatch(params: {
         if (controller.signal.aborted) {
           throw controller.signal.reason instanceof Error
             ? controller.signal.reason
-            : new Error('Page upload aborted');
+            : new Error('timeout: Page upload aborted');
         }
         try {
           return await uploadSingleAttempt(task, controller.signal);
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
           if (attempt < maxRetries && !controller.signal.aborted) {
-            await sleepWithSignal(retryBaseDelayMs * (attempt + 1), controller.signal);
+            const delayMs = isTimeoutError(lastError)
+              ? timeoutRetryDelayMs
+              : retryBaseDelayMs * (attempt + 1);
+            await sleepWithSignal(delayMs, controller.signal);
           }
         }
       }
@@ -368,11 +397,10 @@ export async function runPageUploadBatch(params: {
       uploadedPages.push(page);
       onPageSuccess?.(page);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
       const failure: PageFailureInfo = {
         pageNumber: task.pageNumber,
         filename: task.file.name,
-        error: message,
+        error: classifyUploadError(err),
       };
       failedPages.push(failure);
       onPageFailure?.(failure);

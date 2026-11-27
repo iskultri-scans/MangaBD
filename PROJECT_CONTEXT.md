@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT.md — MangaBD
 
-> **Status:** Round 8 Complete (Watermark Hang Hotfix)  
-> **Last Updated:** 2026-11-23  
+> **Status:** Round 9 Complete (Upload Timeout & Diagnostics Hotfix)  
+> **Last Updated:** 2026-11-26  
 > **Owner:** Mehedi  
 > **Role Structure:** PM (external AI) → Lead Engineer (codebase agent)
 
@@ -224,6 +224,7 @@
 - **2026-11-23 (Round 6 — Seamless Reader & Speed):** Removed inter-page bars/borders/gaps in `/read/[slug]/[chapter]` (`flex-col gap-0`, `line-height: 0`, `block w-full h-auto`), switched pages 1–2 to `loading="eager"` with 3-page lookahead preload, and added `s-maxage=31536000` edge caching + `ETag`/`Last-Modified` pass-through in `/api/image/[fileId]`.
 - **2026-11-23 (Round 7 — Image Protection & Branding):** Added download-deterrent reader protection (`draggable={false}`, contextmenu/drag/callout block, scroll-safe transparent overlay `div`), optional default-ON `"MangaBD"` canvas watermark on chapter upload, public/free-reading `/api/image/[fileId]` unchanged, and unified swappable `MangaBD` SVG/PNG branding across header, favicon, PWA icons, and OG image.
 - **2026-11-23 (Round 8 — Watermark & Batch Upload Hotfix):** Extracted `src/lib/chapter-upload.ts` with 10s canvas/`toBlob` timeout + silent fallback to non-watermarked original/compressed image, HEIC/unsupported format skip & WebP alpha white-matte handling, explicit canvas/bitmap memory cleanup, 60s per-page stuck-guard, and per-file failure UI reporting while keeping concurrency 3, retry 2, 4MB cap, and default-ON watermark toggle.
+- **2026-11-26 (Round 9 — Client/Server Timeout Alignment):** Aligned client fetch timeout (`90s`) and stuck-guard (`180s`) above Vercel `maxDuration = 60` and Telegram server upload timeout (`45s`), reduced upload concurrency `3 → 2` (keeping `retry 2`), added `3s` cooldown on timeout-abort retries, classified `failedPages` reasons (`timeout`, `HTTP 4xx/5xx`, `parse error`), and added safe-retry notice (`"ছবি চ্যানেলে যেতে পারে, retry নিরাপদ"`).
 
 ### Changelog
 - **2026-11-17:** Implemented Telegram CDN upload, streaming image proxy, account linking (token + webhook), targeted broadcast APIs, and UI integrations (`TelegramConnectCard`, `ChapterManager`, `MangaReaderModal`).
@@ -244,3 +245,4 @@
 - **2026-11-23 (Round 6):** Seamless vertical reader (`gap-0`, `leading-[0]`, `block w-full h-auto`, no per-page borders/captions), eager first-2-page loading + 3-page preload, and `s-maxage=31536000` + `ETag`/`Last-Modified` pass-through in `/api/image/[fileId]` and `src/lib/telegram.ts`.
 - **2026-11-23 (Round 7):** Added reader image download deterrents (`.protected-page-img`, `draggable={false}`, contextmenu/drag block, scroll-safe transparent overlay `div`), default-ON subtle `"MangaBD"` canvas watermark on admin chapter upload, swappable `BrandLogo`/`BrandMark` (`/public/brand/mangabd-mark.svg`, `/public/logo.svg`, `/src/app/icon.svg`, regenerated PWA PNG icons & `og-default.png`), and migrated remaining `iskultrip-*` localStorage keys to `mangabd-*`.
 - **2026-11-23 (Round 8 Hotfix):** Fixed 20+ page upload hang when watermark is ON via `src/lib/chapter-upload.ts`: 10s timeout on `createImageBitmap`/`canvas.toBlob` + silent fallback to original/compressed blob, HEIC/unsupported skip, WebP alpha white matte + canvas memory release, 60s per-page stuck-guard across retry 2, concurrency 3, and per-page failure UI list in `ChapterManager.tsx`.
+- **2026-11-26 (Round 9 Hotfix):** Fixed client-vs-server false upload failures: `ATTEMPT_FETCH_TIMEOUT_MS = 90s`, `PAGE_STUCK_TIMEOUT_MS = 180s`, `UPLOAD_CONCURRENCY = 2`, `export const maxDuration = 60` on `/api/telegram/upload`, `TELEGRAM_UPLOAD_TIMEOUT_MS = 45s`, `3s` timeout-abort retry cooldown, explicit `timeout`/`HTTP 4xx/5xx`/`parse error` diagnostics in `failedPages`, and safe-retry UI notice.

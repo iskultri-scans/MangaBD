@@ -151,7 +151,7 @@ export function ChapterManager({
               () =>
                 attemptController.abort(
                   new Error(
-                    `Upload timed out after ${Math.round(ATTEMPT_FETCH_TIMEOUT_MS / 1000)}s`
+                    `timeout: Client upload timed out after ${Math.round(ATTEMPT_FETCH_TIMEOUT_MS / 1000)}s`
                   )
                 ),
               ATTEMPT_FETCH_TIMEOUT_MS
@@ -169,10 +169,40 @@ export function ChapterManager({
                 body: formData,
                 signal: attemptController.signal,
               });
-              const uploadData = await uploadRes.json();
 
-              if (!uploadRes.ok || !uploadData.ok || !uploadData.pages?.[0]?.fileId) {
-                throw new Error(uploadData.error || `Failed on page ${task.pageNumber}`);
+              const rawBody = await uploadRes.text();
+              let uploadData: {
+                ok?: boolean;
+                error?: string;
+                pages?: Array<{ fileId?: string }>;
+              } | null = null;
+              let parseFailed = false;
+
+              try {
+                uploadData = rawBody ? JSON.parse(rawBody) : null;
+              } catch {
+                parseFailed = true;
+              }
+
+              if (!uploadRes.ok) {
+                const statusLabel =
+                  uploadRes.status === 504 ? `HTTP 504 (timeout)` : `HTTP ${uploadRes.status}`;
+                const serverMsg =
+                  uploadData?.error ||
+                  (parseFailed && rawBody
+                    ? `Non-JSON error response (${rawBody.slice(0, 100).replace(/\s+/g, ' ').trim()})`
+                    : uploadRes.statusText || 'Server rejected upload');
+                throw new Error(`${statusLabel}: ${serverMsg}`);
+              }
+
+              if (parseFailed || !uploadData) {
+                throw new Error('parse error: Invalid JSON response from upload server');
+              }
+
+              if (!uploadData.ok || !uploadData.pages?.[0]?.fileId) {
+                throw new Error(
+                  `parse error: ${uploadData.error || 'Missing fileId in upload response'}`
+                );
               }
 
               return {
@@ -415,6 +445,9 @@ export function ChapterManager({
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                ছবি চ্যানেলে যেতে পারে, retry নিরাপদ। (Wait up to 90s/page on slow uploads.)
+              </p>
             </div>
           )}
 
@@ -424,9 +457,12 @@ export function ChapterManager({
                 <AlertTriangle size={13} />
                 {failedPages.length} page(s) failed (remaining pages continued):
               </p>
+              <p className="text-[11px] text-amber-300/90">
+                ছবি চ্যানেলে যেতে পারে, retry নিরাপদ — Resume Upload চাপলে শুধু বাকি পেজগুলো আপলোড হবে।
+              </p>
               <ul className="max-h-32 overflow-y-auto space-y-1 text-[11px] text-red-200/90 font-mono-num">
                 {failedPages.map((fail) => (
-                  <li key={fail.pageNumber} className="truncate">
+                  <li key={fail.pageNumber} className="truncate" title={`Page ${fail.pageNumber} (${fail.filename}): ${fail.error}`}>
                     Page {fail.pageNumber} ({fail.filename}): {fail.error}
                   </li>
                 ))}

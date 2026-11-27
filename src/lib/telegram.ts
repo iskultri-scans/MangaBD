@@ -153,7 +153,7 @@ export function formatTelegramHtml(payload: TelegramBroadcastPayload): string {
 }
 
 const TELEGRAM_API_TIMEOUT_MS = 10_000;
-const TELEGRAM_UPLOAD_TIMEOUT_MS = 30_000;
+const TELEGRAM_UPLOAD_TIMEOUT_MS = 45_000;
 const TELEGRAM_STREAM_TIMEOUT_MS = 15_000;
 const MAX_RETRY_AFTER_MS = 8_000;
 
@@ -438,9 +438,15 @@ export async function uploadImageToTelegram(
       messageId: data.result.message_id,
     };
   } catch (error) {
+    const isTimeout =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
     return {
       ok: false,
-      error: error instanceof Error ? error.message : 'Network error uploading to Telegram',
+      error: isTimeout
+        ? `Telegram upload timed out after ${Math.round(TELEGRAM_UPLOAD_TIMEOUT_MS / 1000)}s`
+        : error instanceof Error
+          ? error.message
+          : 'Network error uploading to Telegram',
     };
   }
 }

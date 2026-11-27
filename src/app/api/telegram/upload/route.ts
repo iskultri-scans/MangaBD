@@ -10,6 +10,9 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/avif',
 ]);
 
+// Allow up to 60s for large chapter page uploads to Telegram on Vercel
+export const maxDuration = 60;
+
 // Server cap: 4MB per page (Vercel serverless payload limit) and 1 file per request
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
 const MAX_FILES_PER_REQUEST = 1;
@@ -97,13 +100,14 @@ export async function POST(request: NextRequest) {
 
       const result = await uploadImageToTelegram(file, file.name || `page-${pageNumber}.jpg`, caption);
       if (!result.ok || !result.fileId) {
+        const isTimeout = Boolean(result.error && /timed out|timeout/i.test(result.error));
         return NextResponse.json(
           {
             ok: false,
             error: `Failed on page ${pageNumber} (${file.name}): ${result.error}`,
             uploadedPages,
           },
-          { status: 502 }
+          { status: isTimeout ? 504 : 502 }
         );
       }
 
